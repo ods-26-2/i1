@@ -1,0 +1,158 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "ods.i1.detections",
+  "description": "Contrato oficial de saída do componente I1 (Detecção por Quadro - Camada 2) na Especificação de Interfaces 1.0 (Arquitetura 6c). Perfil de envelope EV-SINAL.",
+  "type": "object",
+  "required": [
+    "message_type",
+    "message_id",
+    "schema",
+    "schema_version",
+    "producer",
+    "published_at",
+    "captured_at",
+    "source_id",
+    "session_id",
+    "sequence",
+    "artifact_version",
+    "payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "message_type": {
+      "type": "string",
+      "const": "event",
+      "description": "Tipo da mensagem no barramento (fixo 'event' para EV-SINAL)."
+    },
+    "message_id": {
+      "type": "string",
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "description": "Identificador único UUID v4 da mensagem para deduplicação nos consumidores (RNF 3)."
+    },
+    "schema": {
+      "type": "string",
+      "const": "ods.i1.detections",
+      "description": "Identificador canônico do schema e tópico no broker."
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0",
+      "description": "Versão do contrato na Especificação de Interfaces 1.0 (Arquitetura 6c)."
+    },
+    "producer": {
+      "type": "string",
+      "const": "I1",
+      "description": "Identificador do componente produtor da Camada 2."
+    },
+    "published_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "Timestamp UTC de publicação em ISO 8601 com milissegundos."
+    },
+    "captured_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$",
+      "description": "Timestamp UTC de captura original propagado de ods.p4.frame (P4/P6)."
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificador da fonte de vídeo (ex.: 'cam0')."
+    },
+    "session_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Identificador da sessão ativa propagado de P4/P6 ou ods.session.started (B2)."
+    },
+    "sequence": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Contador sequencial monotônico por sessão (reinicia em 0 em START, SEEK, LOOP, RESTART)."
+    },
+    "artifact_version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Versão efetiva do engine carregado via P2.info() (engine_version)."
+    },
+    "target": {
+      "type": "string",
+      "description": "Campo opcional do envelope de 13 campos (omitido por padrão no perfil EV-SINAL)."
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Campo opcional do envelope de 13 campos (omitido por padrão no perfil EV-SINAL)."
+    },
+    "payload": {
+      "type": "object",
+      "required": [
+        "frame_index",
+        "image_width",
+        "image_height",
+        "detections"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "frame_index": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Índice do quadro bruto gerado pela fonte P4/P6."
+        },
+        "image_width": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Largura do quadro bruto em pixels."
+        },
+        "image_height": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Altura do quadro bruto em pixels."
+        },
+        "detections": {
+          "type": "array",
+          "description": "Lista de detecções no quadro. Quadros sem objetos emitem array vazio [].",
+          "items": {
+            "type": "object",
+            "required": [
+              "detection_id",
+              "class",
+              "confidence",
+              "bbox"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "detection_id": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Identificador sequencial da detecção dentro do quadro (0, 1, 2...)."
+              },
+              "class": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Nome da classe pertencente ao vocabulário oficial do artefato MODEL (B5)."
+              },
+              "confidence": {
+                "type": "number",
+                "minimum": 0.0,
+                "maximum": 1.0,
+                "description": "Grau de confiança da detecção no intervalo [0.0, 1.0]."
+              },
+              "bbox": {
+                "type": "array",
+                "description": "Caixa delimitadora [x_min, y_min, x_max, y_max] em pixels inteiros do quadro bruto.",
+                "minItems": 4,
+                "maxItems": 4,
+                "items": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,39 @@
+# Controle de versão e metadados de IDE
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Ambientes virtuais e caches Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Logs e saídas temporárias de treinamento Ultralytics/YOLO
+runs/
+wandb/
+*.log
+*.tmp
+
+# Datasets brutos/pesados (montados via volume quando necessário no Degrau A)
+B5/datasets/
+!B5/datasets/**/manifest.json
+
+# Pesos intermediários fora da pasta oficial de artefatos
+B5/**/*.pt
+!B5/artifacts/**/*.onnx
+!B5/artifacts/**/*.json
+
+# Documentação e arquivos de planejamento
+*.pdf
+*.tex
+*.aux
+*.out

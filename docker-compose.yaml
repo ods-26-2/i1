@@ -1,0 +1,66 @@
+services:
+  # ============================================================================
+  # 1. TESTES DE CONTRATO E PIPELINE (Para a CI de B4 / TRA-2 - Tarefa T15)
+  # Como rodar: docker compose run --rm i1-ci-tests
+  # ============================================================================
+  i1-ci-tests:
+    build: .
+    command: ["python3", "I1/tests/test_i1_sprint3.py"]
+
+  # ============================================================================
+  # 2. MOCK PRODUCER - MODO STDOUT (Inspeção local rápida no terminal)
+  # Como rodar: docker compose run --rm i1-mock-stdout
+  # ============================================================================
+  i1-mock-stdout:
+    build: .
+    command: [
+      "python3", "I1/mock_producer.py",
+      "--frames", "10",
+      "--mode", "stdout"
+    ]
+
+  # ============================================================================
+  # 3. MOCK PRODUCER - MODO KAFKA (Dispara eventos no Broker da Disciplina B3)
+  # Como rodar: docker compose run --rm i1-mock-kafka
+  # Para trocar o broker: ODS_KAFKA_BROKER=ip:porta docker compose run --rm i1-mock-kafka
+  # ============================================================================
+  i1-mock-kafka:
+    build: .
+    environment:
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-34.66.235.91:9093}
+    command: [
+      "python3", "I1/mock_producer.py",
+      "--frames", "10",
+      "--mode", "kafka"
+    ]
+
+  # ============================================================================
+  # 4. DEGRAU A - DETECTOR REAL COM MODELO ONNX (B5 -> I1 - Tarefas T16 e T20)
+  # Por padrão executa a Aplicação 1 (app-epi) no stdout.
+  #
+  # Parâmetros suportados por I1/run_detector.py:
+  #   --onnx <caminho>         : Arquivo .onnx do pacote B5 (ex: app-epi.onnx ou app-plates.onnx)
+  #   --metadata <caminho>     : Arquivo metadata.json do pacote B5 (define classes e versão)
+  #   --source <caminho|0>     : Pasta de imagens de teste, vídeo .mp4 ou 0 para webcam
+  #   --max-frames <int>       : Quantidade máxima de quadros a processar (ex: 10, 20)
+  #   --conf <float>           : Limiar de confiança do detector (default: 0.50)
+  #   --mode <stdout|kafka>    : Publica no terminal ('stdout') ou no broker ('kafka')
+  #   --output-jsonl <arquivo> : Caminho onde salvar o log de eventos validados
+  # ============================================================================
+  i1-degrau-a:
+    build: .
+    environment:
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-34.66.235.91:9093}
+    volumes:
+      - ./B5/artifacts:/app/B5/artifacts:ro
+      - ./B5/datasets:/app/B5/datasets:ro
+    command: [
+      "python3", "I1/run_detector.py",
+      "--onnx", "/app/B5/artifacts/app-epi/1.0.0/app-epi.onnx",
+      "--metadata", "/app/B5/artifacts/app-epi/1.0.0/metadata.json",
+      "--source", "/app/B5/datasets/epi/test/images",
+      "--max-frames", "10",
+      "--conf", "0.50",
+      # O .jsonl é salvo no container, mas você pode mapear para o host se quiser inspecionar depois.
+      "--output-jsonl", "/app/degrau_a_epi_events.jsonl" 
+    ]

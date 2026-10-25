@@ -1,0 +1,66 @@
+[B2-OBS] Falha no quadro frame_index=1 (sequence=1 suprimido): Quadro corrompido ou buffer vazio recebido da fonte.
+========================================================================================
+ AUDITORIA AUTOMATIZADA DE CONTRATOS E INTEGRAÇÃO — SQUAD MOD-1 (SPRINT 3 - ARQ. 6c)
+========================================================================================
+
+----------------------------------------------------------------------------------------
+TAREFA(S) JIRA: T2, T12, T15 | CENÁRIO: Contrato ods.i1.detections 1.0 (EV-SINAL), Quadro Vazio e Deduplicação (B1/B3)
+----------------------------------------------------------------------------------------
+  [OK] Envelope EV-SINAL contém exatamente os 11 campos obrigatórios + payload enxuto.
+  [OK] Quadro sem objetos gera evento válido com 'detections': [].
+  [OK] Validador acoplado rejeitou payload contendo campo legado ('camera_id').
+  [OK] Publicador bloqueou reenvio de mensagem com mesmo UUIDv4 (message_id).
+  >> Evidência Técnica: schema='ods.i1.detections' v1.0 | message_id=6f2f663c-869b-4e6e-ae70-cfbb53fe121b | e2e_latency=55615526.00ms
+
+----------------------------------------------------------------------------------------
+TAREFA(S) JIRA: T10 | CENÁRIO: Pré-processamento Dinâmico (4 Pixel Formats) e Pós-processamento (NMS Intra-classe + BBox Inteira)
+----------------------------------------------------------------------------------------
+  [OK] Conversão dinâmica de buffers brutos validada: BGR->(480, 640, 3), RGB->(480, 640, 3), GRAY->(480, 640, 3), NV12->(480, 640, 3).
+  [OK] Filtro de confiança (limiar 0.50) removeu detecção de baixa confiança (0.30).
+  [OK] NMS agrupado por classe suprimiu sobreposição da mesma classe (pessoa) e preservou classe distinta (capacete).
+  [OK] Coordenadas convertidas para inteiros [x_min, y_min, x_max, y_max] e detection_id sequencial (0, 1).
+  >> Evidência Técnica: Entrada: 4 RawDetections -> Pós-NMS/Conf: 2 Detections | BBox[0]=[100, 51, 300, 401]
+
+----------------------------------------------------------------------------------------
+TAREFA(S) JIRA: T11 | CENÁRIO: Integração com Biblioteca Incorporada P2 (load, infer, info, release) e Tratamento de Erros
+----------------------------------------------------------------------------------------
+  [OK] Ciclo completo load() -> info() -> infer() -> release() executado sob protocolo fechado v6c.
+  [OK] Exceções tipadas validadas: ENGINE_NOT_FOUND, INCOMPATIBLE_VERSION, INVALID_INPUT_SHAPE, RUNTIME_ERROR.
+  [OK] Métricas de hardware (latency_ms e gpu_memory_mb) extraídas a cada chamada de infer().
+  >> Evidência Técnica: engine_version='app-epi-1.0.0' | infer_latency=6.45ms | vram=412.5MB
+
+----------------------------------------------------------------------------------------
+TAREFA(S) JIRA: T6, T7 | CENÁRIO: Semântica de Sessão (START/SEEK/LOOP/RESTART) e Lacuna de Sequence em Quadro Corrompido
+----------------------------------------------------------------------------------------
+  [OK] Quadro 0 íntegro publicado com sequence=0.
+  [OK] Quadro 1 corrompido suprimido (nenhuma detecção falsa publicada) e registrado em [B2-OBS].
+  [OK] Quadro 2 íntegro publicado com sequence=2 (lacuna 0 -> 2 sinaliza descarte do sequence=1).
+  [OK] Evento de controle SEEK reiniciou deterministicamente o contador para sequence=0.
+  >> Evidência Técnica: Sequência antes do SEEK: [0, (1 suprimido), 2] -> Após SEEK: sequence=0
+Loading /home/cnpq405840/Faculdade/8/ODS/mod1-fabrica-detector/B5/artifacts/app-epi/1.0.0/app-epi.onnx for ONNX Runtime inference...
+Using ONNX Runtime 1.31.0 with CPUExecutionProvider
+WARNING ⚠️ CUDA requested but CUDAExecutionProvider not available. Using CPU...
+----------------------------------------------------------------------
+Ran 5 tests in 3.605s
+
+OK
+
+----------------------------------------------------------------------------------------
+TAREFA(S) JIRA: T5, T16 | CENÁRIO: Integração Degrau A Fim a Fim (Pacote B5 ONNX Real -> Pipeline I1 -> Validador B1)
+----------------------------------------------------------------------------------------
+  [OK] Pacote B5 carregado: app-epi v1.0.0 (classes=['pessoa', 'capacete', 'colete']).
+  [OK] Métrica de teste isolada registrada no pacote: mAP@0.5 = 0.9517.
+  [OK] 3/3 eventos aprovados em 100% pelo validador de contrato B1.
+  >> Evidência Técnica: ONNX='app-epi.onnx' | Quadros=3 | Detecções=40 | Latência Média=148.46ms
+
+========================================================================================
+ RESUMO EXECUTIVO PARA ANEXAR NO JIRA (SPRINT 3 — MOD-1)
+========================================================================================
+Tarefas Jira   | Status     | Evidência Técnica Aferida
+----------------------------------------------------------------------------------------
+T2, T12, T15   | APROVADO   | schema='ods.i1.detections' v1.0 | message_id=6f2f663c-869b-4e6e-ae70-cfbb53fe121b | e2e_latency=55615526.00ms
+T10            | APROVADO   | Entrada: 4 RawDetections -> Pós-NMS/Conf: 2 Detections | BBox[0]=[100, 51, 300, 401]
+T11            | APROVADO   | engine_version='app-epi-1.0.0' | infer_latency=6.45ms | vram=412.5MB
+T6, T7         | APROVADO   | Sequência antes do SEEK: [0, (1 suprimido), 2] -> Após SEEK: sequence=0
+T5, T16        | APROVADO   | ONNX='app-epi.onnx' | Quadros=3 | Detecções=40 | Latência Média=148.46ms
+========================================================================================
