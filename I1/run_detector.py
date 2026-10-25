@@ -2,7 +2,7 @@
 run_detector.py — Ponto de entrada (CLI) para executar o componente I1 sobre:
   - Webcam ao vivo (--source 0)
   - Arquivo de vídeo (--source caminho/video.mp4)
-  - Pasta de imagens do dataset (--source B5/datasets/epi/test/images)
+  - Pasta de imagens de teste (--source I1/artifacts/app-plates/1.0.0/fixtures)
 
 Salva os eventos validados em JSONL e exibe resumo de telemetria (Degrau A - T16).
 """
@@ -70,18 +70,18 @@ def main() -> None:
         "--source",
         type=str,
         default="0",
-        help="0 para webcam, caminho de um vídeo .mp4, ou pasta de imagens (ex: B5/datasets/epi/test/images)",
+        help="0 para webcam, caminho de um vídeo .mp4, ou pasta de imagens (ex: I1/artifacts/app-plates/1.0.0/fixtures)",
     )
     parser.add_argument(
         "--onnx",
         type=str,
-        default=str(REPO_ROOT / "B5/artifacts/app-epi/1.0.0/app-epi.onnx"),
+        default=str(PROJECT_ROOT / "artifacts/app-plates/1.0.0/app-plates.onnx"),
         help="Caminho para o artefato .onnx gerado por B5",
     )
     parser.add_argument(
         "--metadata",
         type=str,
-        default=str(REPO_ROOT / "B5/artifacts/app-epi/1.0.0/metadata.json"),
+        default=str(PROJECT_ROOT / "artifacts/app-plates/1.0.0/metadata.json"),
         help="Caminho para o metadata.json gerado por B5",
     )
     parser.add_argument("--max-frames", type=int, default=20, help="Limite de quadros para processar")

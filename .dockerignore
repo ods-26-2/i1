@@ -23,14 +23,9 @@ wandb/
 *.log
 *.tmp
 
-# Datasets brutos/pesados (montados via volume quando necessário no Degrau A)
-B5/datasets/
-!B5/datasets/**/manifest.json
-
-# Pesos intermediários fora da pasta oficial de artefatos
-B5/**/*.pt
-!B5/artifacts/**/*.onnx
-!B5/artifacts/**/*.json
+# Pesos intermediários fora da pasta oficial de artefatos (I1/artifacts/**/*.onnx é mantido)
+*.pt
+*.jsonl
 
 # Documentação e arquivos de planejamento
 *.pdf

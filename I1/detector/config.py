@@ -58,7 +58,7 @@ class AppConfig:
         return cls(
             artifact_id=str(raw["artifact_id"]),
             artifact_version=str(raw["artifact_version"]),
-            engine_ref=str(raw.get("engine_ref", f"B5/artifacts/{raw['artifact_id']}/{raw['artifact_version']}/{raw['artifact_id']}.onnx")),
+            engine_ref=str(raw.get("engine_ref", f"I1/artifacts/{raw['artifact_id']}/{raw['artifact_version']}/{raw['artifact_id']}.onnx")),
             classes=[str(c) for c in classes],
             conf_threshold=float(raw.get("conf_threshold", 0.50)),
             nms_iou_threshold=float(raw.get("nms_iou_threshold", 0.45)),

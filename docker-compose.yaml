@@ -36,10 +36,11 @@ services:
 
   # ============================================================================
   # 4. DEGRAU A - DETECTOR REAL COM MODELO ONNX (B5 -> I1 - Tarefas T16 e T20)
-  # Por padrão executa a Aplicação 1 (app-epi) no stdout.
+  # Por padrão executa a Aplicação 2 (app-plates) no stdout, com o artefato
+  # embarcado na imagem a partir de I1/artifacts/ (cópia do pacote publicado por B5).
   #
   # Parâmetros suportados por I1/run_detector.py:
-  #   --onnx <caminho>         : Arquivo .onnx do pacote B5 (ex: app-epi.onnx ou app-plates.onnx)
+  #   --onnx <caminho>         : Arquivo .onnx do pacote B5 (ex: app-plates.onnx)
   #   --metadata <caminho>     : Arquivo metadata.json do pacote B5 (define classes e versão)
   #   --source <caminho|0>     : Pasta de imagens de teste, vídeo .mp4 ou 0 para webcam
   #   --max-frames <int>       : Quantidade máxima de quadros a processar (ex: 10, 20)
@@ -51,16 +52,13 @@ services:
     build: .
     environment:
       - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-34.66.235.91:9093}
-    volumes:
-      - ./B5/artifacts:/app/B5/artifacts:ro
-      - ./B5/datasets:/app/B5/datasets:ro
     command: [
       "python3", "I1/run_detector.py",
-      "--onnx", "/app/B5/artifacts/app-epi/1.0.0/app-epi.onnx",
-      "--metadata", "/app/B5/artifacts/app-epi/1.0.0/metadata.json",
-      "--source", "/app/B5/datasets/epi/test/images",
+      "--onnx", "/app/I1/artifacts/app-plates/1.0.0/app-plates.onnx",
+      "--metadata", "/app/I1/artifacts/app-plates/1.0.0/metadata.json",
+      "--source", "/app/I1/artifacts/app-plates/1.0.0/fixtures",
       "--max-frames", "10",
       "--conf", "0.50",
       # O .jsonl é salvo no container, mas você pode mapear para o host se quiser inspecionar depois.
-      "--output-jsonl", "/app/degrau_a_epi_events.jsonl" 
+      "--output-jsonl", "/app/degrau_a_plates_events.jsonl" 
     ]

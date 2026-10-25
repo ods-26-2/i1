@@ -17,7 +17,6 @@ RUN pip install --no-cache-dir \
     ultralytics \
     onnxruntime
 
-COPY B5/ /app/B5/
 COPY I1/ /app/I1/
 COPY schemas/ /app/schemas/
 

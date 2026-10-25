@@ -287,9 +287,10 @@ class TestI1Sprint3Audit(unittest.TestCase):
         )
 
     def test_05_t16_integracao_degrau_a_onnx_real(self) -> None:
-        """[T16] Executa o Degrau A com o artefato ONNX real gerado por B5 (app-epi v1.0.0)."""
-        onnx_path = REPO_ROOT / "B5/artifacts/app-epi/1.0.0/app-epi.onnx"
-        meta_path = REPO_ROOT / "B5/artifacts/app-epi/1.0.0/metadata.json"
+        """[T16] Executa o Degrau A com o artefato ONNX real gerado por B5 (app-plates v1.0.0)."""
+        artifact_dir = I1_ROOT / "artifacts/app-plates/1.0.0"
+        onnx_path = artifact_dir / "app-plates.onnx"
+        meta_path = artifact_dir / "metadata.json"
 
         if not onnx_path.exists() or not meta_path.exists():
             self.skipTest("Artefato ONNX real não encontrado no caminho padrão.")
@@ -305,12 +306,12 @@ class TestI1Sprint3Audit(unittest.TestCase):
             conf_threshold=0.50,
         )
 
-        # Usa imagem real do dataset de teste se disponível, ou quadro sintético de validação
-        test_imgs_dir = REPO_ROOT / "B5/datasets/epi/test/images"
+        # Usa imagens reais de fixtures se disponíveis, ou quadro sintético de validação
+        test_imgs_dir = artifact_dir / "fixtures"
         frames_to_run: list[Frame] = []
         if test_imgs_dir.exists():
             import cv2
-            img_files = sorted(test_imgs_dir.glob("*.jpg"))[:3]
+            img_files = sorted(p for p in test_imgs_dir.iterdir() if p.suffix.lower() in {".jpg", ".jpeg", ".png"})[:3]
             for idx, p in enumerate(img_files):
                 bgr = cv2.imread(str(p))
                 if bgr is not None:
