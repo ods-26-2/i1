@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir \
     pyyaml \
     confluent-kafka \
     ultralytics \
+    onnx \
     onnxruntime
 
 COPY I1/ /app/I1/
