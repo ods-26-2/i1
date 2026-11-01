@@ -54,6 +54,23 @@ def preprocess_frame_to_bgr(frame: Frame) -> np.ndarray:
     return bgr
 
 
+def unreadable_frame(source_id: str, session_id: str, frame_index: int) -> Frame:
+    """
+    Quadro marcado como corrompido para um arquivo que não pôde ser decodificado.
+    Em vez de sumir em silêncio, segue para o pipeline, que o descarta com registro em B2 e lacuna em sequence (T7).
+    """
+    return Frame(
+        image=np.empty((0, 0, 3), dtype=np.uint8),
+        captured_at=utc_now_iso_ms(),
+        source_id=source_id,
+        session_id=session_id,
+        frame_index=frame_index,
+        image_width=0,
+        image_height=0,
+        corrupted=True,
+    )
+
+
 class OpenCVFrameSource:
     """Fonte de vídeo para Degrau A / testes locais simulando o contrato ods.p4.frame (P4/P6)."""
 
@@ -107,6 +124,7 @@ class OpenCVFrameSource:
                     break
                 bgr = cv2.imread(str(img_path))
                 if bgr is None:
+                    yield unreadable_frame(self.source_id, self.session_id, frame_idx)
                     continue
                 h, w = bgr.shape[:2]
                 raw_buf = self._convert_from_bgr(bgr)

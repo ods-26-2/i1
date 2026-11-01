@@ -4,6 +4,7 @@ pipeline.py — Orquestrador do componente I1 (Arquitetura 6c).
 
 from __future__ import annotations
 
+import json
 import logging
 from typing import Any
 
@@ -15,6 +16,20 @@ from .postprocessing import apply_nms, filter_by_confidence, finalize_detections
 from .publishing import EventPublisher, build_envelope, compute_e2e_latency_ms
 
 logger = logging.getLogger("ods.i1.observability")
+
+
+def classify_frame_error(stage: str, err: Exception) -> str:
+    """
+    Código de erro registrado na observabilidade (B2) para um quadro descartado (T7).
+    Erros de P2 mantêm o código formal; os demais recebem um código interno de I1 conforme o estágio.
+    """
+    if isinstance(err, P2ExecutionError):
+        return err.code
+    if isinstance(err, ValueError) and stage == "preprocess":
+        return "INVALID_FRAME"
+    if isinstance(err, ValueError) and stage == "publish":
+        return "CONTRACT_VIOLATION"
+    return "INTERNAL_ERROR"
 
 
 class DetectorPipeline:
@@ -36,6 +51,29 @@ class DetectorPipeline:
         self.sequence: int = 0
         self.effective_artifact_version: str = config.artifact_version
         self.telemetry_history: list[dict[str, Any]] = []
+        self.error_counts: dict[str, int] = {}
+
+    def _log_observability(self, level: int, record: dict[str, Any]) -> None:
+        """Registro estruturado (JSON em uma linha) para a observabilidade de B2."""
+        logger.log(level, "[B2-OBS] %s", json.dumps(record, ensure_ascii=False))
+
+    def _record_frame_drop(self, frame: Frame, sequence: int, stage: str, err: Exception) -> None:
+        code = classify_frame_error(stage, err)
+        self.error_counts[code] = self.error_counts.get(code, 0) + 1
+        self._log_observability(
+            logging.ERROR,
+            {
+                "event": "frame_dropped",
+                "error_code": code,
+                "stage": stage,
+                "source_id": frame.source_id,
+                "session_id": frame.session_id,
+                "sequence": sequence,
+                "frame_index": frame.frame_index,
+                "artifact_version": self.effective_artifact_version,
+                "message": str(err),
+            },
+        )
 
     def initialize(self) -> None:
         """Carrega o motor via P2.load() e obtém engine_version via P2.info() (T11)."""
@@ -69,40 +107,42 @@ class DetectorPipeline:
         current_seq = self.sequence
         self.sequence += 1  # Incrementa sempre para que descartes gerem lacuna implícita em sequence (RNF 5 / T7)
 
+        # Diretriz RNF 5 / T7: qualquer falha em qualquer estágio descarta o quadro sem publicar detecção falsa,
+        # registra o erro na observabilidade B2 e sinaliza a perda pela lacuna implícita em sequence.
+        stage = "preprocess"
         try:
             bgr = preprocess_frame_to_bgr(frame)
+
+            stage = "infer"
             raw_dets, hw_metrics = self.inference_client.run_inference(bgr)
-        except (ValueError, P2ExecutionError) as err:
-            # Diretriz RNF 5 / T7: Não publicar detecção falsa; registrar falha na observabilidade B2
-            # e sinalizar perda pela lacuna implícita em sequence.
-            logger.error(
-                f"[B2-OBS] Falha no quadro frame_index={frame.frame_index} (sequence={current_seq} suprimido): {err}"
+            if hw_metrics.gpu_memory_mb > self.config.max_gpu_memory_mb:
+                logger.warning(
+                    f"[B2-OBS] Consumo de VRAM ({hw_metrics.gpu_memory_mb} MB) excedeu orçamento ({self.config.max_gpu_memory_mb} MB)"
+                )
+
+            stage = "postprocess"
+            filtered = filter_by_confidence(raw_dets, self.config.conf_threshold)
+            nms_dets = apply_nms(filtered, self.config.nms_iou_threshold)
+            final_dets = finalize_detections(
+                detections=nms_dets,
+                class_map=self.config.class_map,
+                image_width=frame.image_width,
+                image_height=frame.image_height,
+                enabled_classes=self.config.enabled_classes,
             )
+
+            stage = "publish"
+            envelope = build_envelope(
+                frame=frame,
+                sequence=current_seq,
+                artifact_version=self.effective_artifact_version,
+                detections=final_dets,
+            )
+            published_dict = self.publisher.publish(envelope)
+        except Exception as err:
+            self._record_frame_drop(frame, current_seq, stage, err)
             return None
 
-        if hw_metrics.gpu_memory_mb > self.config.max_gpu_memory_mb:
-            logger.warning(
-                f"[B2-OBS] Consumo de VRAM ({hw_metrics.gpu_memory_mb} MB) excedeu orçamento ({self.config.max_gpu_memory_mb} MB)"
-            )
-
-        filtered = filter_by_confidence(raw_dets, self.config.conf_threshold)
-        nms_dets = apply_nms(filtered, self.config.nms_iou_threshold)
-        final_dets = finalize_detections(
-            detections=nms_dets,
-            class_map=self.config.class_map,
-            image_width=frame.image_width,
-            image_height=frame.image_height,
-            enabled_classes=self.config.enabled_classes,
-        )
-
-        envelope = build_envelope(
-            frame=frame,
-            sequence=current_seq,
-            artifact_version=self.effective_artifact_version,
-            detections=final_dets,
-        )
-
-        published_dict = self.publisher.publish(envelope)
         e2e_latency_ms = compute_e2e_latency_ms(envelope.captured_at, envelope.published_at)
 
         self.telemetry_history.append(
@@ -118,7 +158,22 @@ class DetectorPipeline:
         return published_dict
 
     def run(self) -> None:
-        self.initialize()
+        try:
+            self.initialize()
+        except P2ExecutionError as err:
+            # Falha de carregamento é fatal: nenhum quadro é consumido nem publicado (T7)
+            self.error_counts[err.code] = self.error_counts.get(err.code, 0) + 1
+            self._log_observability(
+                logging.CRITICAL,
+                {
+                    "event": "engine_load_failed",
+                    "error_code": err.code,
+                    "engine_ref": self.config.engine_ref,
+                    "artifact_version": self.config.artifact_version,
+                    "message": str(err),
+                },
+            )
+            raise
         try:
             for frame in self.source.frames():
                 self.process_single_frame(frame)
