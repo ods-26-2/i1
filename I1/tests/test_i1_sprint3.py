@@ -32,6 +32,11 @@ from detector.publishing import (
 )
 
 
+# session_id é UUID v4 na Especificação 1.0 (envelope EV-SINAL)
+SESSION_A = "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"
+SESSION_DEGRAU_A = "7e6d5c4b-3a29-4f18-8e07-d6c5b4a39281"
+
+
 class DummyFrameSource:
     def __init__(self, frames_list: list[Frame]) -> None:
         self._frames = frames_list
@@ -177,7 +182,7 @@ class TestI1Sprint3Audit(unittest.TestCase):
                 image=raw_buf,
                 captured_at=utc_now_iso_ms(),
                 source_id="cam0",
-                session_id="sess-1",
+                session_id=SESSION_A,
                 frame_index=0,
                 image_width=w,
                 image_height=h,
@@ -250,9 +255,9 @@ class TestI1Sprint3Audit(unittest.TestCase):
 
     def test_04_t6_t7_sessao_seek_loop_e_salto_quadro_corrompido(self) -> None:
         """[T6, T7] Valida reinício de sequence=0 em START/SEEK/LOOP/RESTART e lacuna implícita em quadro corrompido."""
-        f0 = Frame(np.zeros((480, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", "sess-A", 0, 640, 480)
-        f1_corrupt = Frame(np.zeros((480, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", "sess-A", 1, 640, 480, corrupted=True)
-        f2 = Frame(np.zeros((480, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", "sess-A", 2, 640, 480)
+        f0 = Frame(np.zeros((480, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", SESSION_A, 0, 640, 480)
+        f1_corrupt = Frame(np.zeros((480, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", SESSION_A, 1, 640, 480, corrupted=True)
+        f2 = Frame(np.zeros((480, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", SESSION_A, 2, 640, 480)
 
         pub = ValidatedStdoutPublisher(verbose=False)
         pipe = DetectorPipeline(self.cfg, DummyFrameSource([f0, f1_corrupt, f2]), pub, P2InferenceClient(MockP2Backend()))
@@ -269,7 +274,7 @@ class TestI1Sprint3Audit(unittest.TestCase):
         self.assertEqual(out2["sequence"], 2)  # Lacuna implícita (0 -> 2) comprovando descarte do sequence 1
 
         # Simula comando SEEK de P6/B2 (T6)
-        pipe.handle_session_control_event("SEEK", new_session_id="sess-A")
+        pipe.handle_session_control_event("SEEK", new_session_id=SESSION_A)
         out_after_seek = pipe.process_single_frame(f2)
         self.assertEqual(out_after_seek["sequence"], 0)
         pipe.inference_client.close()
@@ -316,11 +321,11 @@ class TestI1Sprint3Audit(unittest.TestCase):
                 bgr = cv2.imread(str(p))
                 if bgr is not None:
                     h, w = bgr.shape[:2]
-                    frames_to_run.append(Frame(bgr, utc_now_iso_ms(), "cam0", "sess-degrau-a", idx, w, h))
+                    frames_to_run.append(Frame(bgr, utc_now_iso_ms(), "cam0", SESSION_DEGRAU_A, idx, w, h))
 
         if not frames_to_run:
             frames_to_run = [
-                Frame(np.zeros((640, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", "sess-degrau-a", 0, 640, 640)
+                Frame(np.zeros((640, 640, 3), dtype=np.uint8), utc_now_iso_ms(), "cam0", SESSION_DEGRAU_A, 0, 640, 640)
             ]
 
         pub = ValidatedStdoutPublisher(verbose=False)

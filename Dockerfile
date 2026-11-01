@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir \
     numpy \
     opencv-python-headless \
     pyyaml \
+    jsonschema \
     confluent-kafka \
     ultralytics \
     onnx \

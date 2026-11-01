@@ -64,26 +64,25 @@
     },
     "session_id": {
       "type": "string",
-      "minLength": 1,
-      "description": "Identificador da sessão ativa propagado de P4/P6 ou ods.session.started (B2)."
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "description": "UUID v4 da sessão, copiado de ods.p4.frame (P4/P6); muda a cada ods.session.started (B2)."
     },
     "sequence": {
       "type": "integer",
       "minimum": 0,
-      "description": "Contador sequencial monotônico por sessão (reinicia em 0 em START, SEEK, LOOP, RESTART)."
+      "description": "Contador crescente por producer + session_id, a partir de 0; lacunas sinalizam perda (B2)."
     },
     "artifact_version": {
       "type": "string",
       "minLength": 1,
       "description": "Versão efetiva do engine carregado via P2.info() (engine_version)."
     },
-    "target": {
-      "type": "string",
-      "description": "Campo opcional do envelope de 13 campos (omitido por padrão no perfil EV-SINAL)."
-    },
     "correlation_id": {
       "type": "string",
-      "description": "Campo opcional do envelope de 13 campos (omitido por padrão no perfil EV-SINAL)."
+      "format": "uuid",
+      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$",
+      "description": "Opcional em eventos: message_id da mensagem que causou este evento. 'target' não existe em eventos (só em command/query)."
     },
     "payload": {
       "type": "object",
