@@ -1,0 +1,43 @@
+{
+  "message_type": "event",
+  "message_id": "5f1e2c7a-9b1d-4e0a-8c6f-2d3a4b5c6d7e",
+  "schema": "ods.i1.detections",
+  "schema_version": "1.0",
+  "producer": "I1",
+  "published_at": "2026-09-23T14:30:00.120Z",
+  "captured_at": "2026-09-23T14:29:59.870Z",
+  "source_id": "cam0",
+  "session_id": "9c2a1f3e-4d5b-4c6a-9e8f-0a1b2c3d4e5f",
+  "sequence": 48213,
+  "artifact_version": "yolo-a5-1.4.0",
+  "payload": {
+    "frame_index": 48213,
+    "image_width": 1920,
+    "image_height": 1080,
+    "detections": [
+      {
+        "detection_id": 0,
+        "class": "person",
+        "confidence": 0.93,
+        "bbox": [
+          412,
+          180,
+          598,
+          702
+        ]
+      },
+      {
+        "detection_id": 1,
+        "class": "helmet",
+        "confidence": 0.81,
+        "bbox": [
+          455,
+          182,
+          548,
+          251
+        ]
+      }
+    ]
+  },
+  "target": "I2"
+}
