@@ -8,10 +8,12 @@ from __future__ import annotations
 
 import copy
 import json
+import os
 from pathlib import Path
 import sys
 import unittest
 from typing import Any
+from unittest import mock
 
 import numpy as np
 
@@ -20,8 +22,14 @@ REPO_ROOT = I1_ROOT.parent
 if str(I1_ROOT) not in sys.path:
     sys.path.insert(0, str(I1_ROOT))
 
+from detector.config import BROKER_ENV_VAR, AppConfig
 from detector.contracts import Detection, Frame
-from detector.publishing import ValidatedStdoutPublisher, build_envelope, validate_ods_i1_detections_schema
+from detector.publishing import (
+    ConfluentKafkaPublisher,
+    ValidatedStdoutPublisher,
+    build_envelope,
+    validate_ods_i1_detections_schema,
+)
 from detector.schema_validation import schema_errors
 
 EXAMPLES_DIR = REPO_ROOT / "schemas" / "examples"
@@ -104,6 +112,26 @@ class TestPublisherOutputMatchesSchema(unittest.TestCase):
         with self.assertRaises(ValueError):
             publisher.publish(envelope)
         self.assertEqual(publisher.published_messages, [])
+
+
+class TestBrokerConfiguration(unittest.TestCase):
+    """RNF 3 / T15: o broker vem só de configuração; sem ele, nada é publicado (nunca o da nuvem por padrão)."""
+
+    def _config(self) -> AppConfig:
+        return AppConfig(artifact_id="app-test", artifact_version="1.0.0", engine_ref="x.onnx", classes=["objeto"])
+
+    def test_no_default_broker(self) -> None:
+        with mock.patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(self._config().broker_bootstrap_servers, "")
+
+    def test_broker_comes_from_environment(self) -> None:
+        with mock.patch.dict(os.environ, {BROKER_ENV_VAR: "localhost:9092"}, clear=True):
+            self.assertEqual(self._config().broker_bootstrap_servers, "localhost:9092")
+
+    def test_kafka_publisher_refuses_missing_broker(self) -> None:
+        for broker in (None, ""):
+            with self.subTest(broker=broker), self.assertRaises(ValueError):
+                ConfluentKafkaPublisher(bootstrap_servers=broker)
 
 
 if __name__ == "__main__":

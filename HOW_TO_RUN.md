@@ -74,12 +74,14 @@ Emite eventos sintéticos validados pelo validador acoplado de B1:
   docker compose run --rm i1-mock-stdout
   ```
 
-- **Modo `kafka` (publica eventos no tópico `ods.i1.detections` do broker oficial `34.66.235.91:9093`):**
+- **Modo `kafka` (publica no tópico `ods.i1.detections`):** o endereço do broker é obrigatório e vem só de
+  `ODS_KAFKA_BROKER` (ou `--broker`). Não há padrão embutido, para que testes e CI nunca publiquem no broker
+  da nuvem por engano. Para os testes integrados da disciplina (B3):
   ```bash
-  docker compose run --rm i1-mock-kafka
+  ODS_KAFKA_BROKER=34.66.235.91:9093 docker compose run --rm i1-mock-kafka
   ```
 
-- **Customizando a quantidade de quadros ou o endereço do broker Kafka:**
+- **Customizando a quantidade de quadros:**
   ```bash
   ODS_KAFKA_BROKER=34.66.235.91:9093 docker compose run --rm i1-mock-kafka \
     python3 I1/mock_producer.py --frames 20 --mode kafka
@@ -116,7 +118,7 @@ Comprova experimentalmente a propriedade **"Um artefato por aplicação, um comp
 | `--source` | `"0"` | `0` para webcam, caminho de vídeo `.mp4` ou diretório de imagens de teste. |
 | `--max-frames` | `20` | Limite de quadros a processar na sessão. |
 | `--conf` | `0.50` | Limiar de confiança mínimo para manter detecções. |
-| `--mode` | `"stdout"` | Destino de publicação: `stdout` (terminal) ou `kafka` (broker B3). |
+| `--mode` | `"stdout"` | Destino de publicação: `stdout` (terminal) ou `kafka` (broker B3, exige `ODS_KAFKA_BROKER`). |
 | `--output-jsonl` | `"degrau_a_events.jsonl"` | Arquivo local onde os eventos validados são persistidos. |
 
 ---

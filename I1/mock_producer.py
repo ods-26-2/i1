@@ -4,13 +4,14 @@ Não requer GPU nem pesos YOLO. Emite mensagens válidas sob o schema ods.i1.det
 
 Uso na CI ou por outras equipas:
   python I1/mock_producer.py --frames 5 --mode stdout
-  python I1/mock_producer.py --frames 10 --mode kafka --broker 34.66.235.91:9093
+  ODS_KAFKA_BROKER=<host:porta> python I1/mock_producer.py --frames 10 --mode kafka
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
 import sys
 import time
@@ -19,6 +20,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from detector.config import BROKER_ENV_VAR
 from detector.contracts import Detection, DetectionPayload, EvSinalEnvelope, utc_now_iso_ms
 from detector.publishing import ConfluentKafkaPublisher, ValidatedStdoutPublisher
 
@@ -50,7 +52,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Produtor Mock Oficial de I1 (ods.i1.detections 1.0)")
     parser.add_argument("--frames", type=int, default=5, help="Quantidade de eventos a emitir")
     parser.add_argument("--mode", choices=["stdout", "kafka"], default="stdout")
-    parser.add_argument("--broker", type=str, default="34.66.235.91:9093")
+    parser.add_argument(
+        "--broker",
+        type=str,
+        default=os.getenv(BROKER_ENV_VAR),
+        help=f"host:porta do broker no modo kafka (padrão: variável {BROKER_ENV_VAR}; sem ela, o modo kafka falha)",
+    )
     parser.add_argument("--topic", type=str, default="ods.i1.detections")
     parser.add_argument("--fps", type=float, default=10.0)
     args = parser.parse_args()

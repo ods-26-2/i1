@@ -87,7 +87,12 @@ class ValidatedStdoutPublisher:
 class ConfluentKafkaPublisher:
     """Publicador Kafka parametrizado (RNF 3 / B3) com validação pré-envio."""
 
-    def __init__(self, bootstrap_servers: str, topic: str = "ods.i1.detections") -> None:
+    def __init__(self, bootstrap_servers: str | None, topic: str = "ods.i1.detections") -> None:
+        if not bootstrap_servers:
+            raise ValueError(
+                "Broker Kafka não configurado: defina ODS_KAFKA_BROKER (ou broker_bootstrap_servers na build). "
+                "Não há endereço padrão, para que testes e CI nunca publiquem no broker da nuvem por engano."
+            )
         from confluent_kafka import Producer
         self.topic = topic
         self._seen_message_ids: set[str] = set()
