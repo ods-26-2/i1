@@ -31,6 +31,7 @@ from detector.publishing import (
     validate_ods_i1_detections_schema,
 )
 from detector.schema_validation import schema_errors
+from mock_producer import generate_mock_envelopes, load_example_payloads
 
 EXAMPLES_DIR = REPO_ROOT / "schemas" / "examples"
 SPEC_EXAMPLE_FILE = EXAMPLES_DIR / "valid" / "01_exemplo_da_especificacao.json"
@@ -112,6 +113,32 @@ class TestPublisherOutputMatchesSchema(unittest.TestCase):
         with self.assertRaises(ValueError):
             publisher.publish(envelope)
         self.assertEqual(publisher.published_messages, [])
+
+
+class TestMockProducer(unittest.TestCase):
+    """O produtor falso usa os mesmos exemplos do validador e sai pelo publicador real."""
+
+    def test_mock_messages_follow_the_schema(self) -> None:
+        count = 2 * len(load_example_payloads()) + 1
+        publisher = ValidatedStdoutPublisher(verbose=False)
+        for envelope in generate_mock_envelopes(count):
+            publisher.publish(envelope)
+        messages = publisher.published_messages
+
+        self.assertEqual([m["sequence"] for m in messages], list(range(count)))
+        self.assertEqual([m["payload"]["frame_index"] for m in messages], list(range(count)))
+        for message in messages:
+            self.assertEqual(schema_errors(message), [])
+
+    def test_mock_payloads_come_from_valid_examples(self) -> None:
+        examples = load_examples("valid")
+        expected = [{k: v for k, v in ex["payload"].items() if k != "frame_index"} for ex in examples.values()]
+        produced = [
+            {k: v for k, v in env.to_dict()["payload"].items() if k != "frame_index"}
+            for env in generate_mock_envelopes(len(expected))
+        ]
+        self.assertEqual(produced, expected)
+        self.assertIn([], [p["detections"] for p in produced])
 
 
 class TestBrokerConfiguration(unittest.TestCase):

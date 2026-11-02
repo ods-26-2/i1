@@ -1,0 +1,23 @@
+{
+  "message_type": "event",
+  "message_id": "a8f5f167-99b4-4d2b-8b1e-6c9a2e4f1d3b",
+  "schema": "ods.i1.detections",
+  "schema_version": "1.0",
+  "producer": "I1",
+  "published_at": "2026-10-18T22:01:10.145Z",
+  "captured_at": "2026-10-18T22:01:10.110Z",
+  "source_id": "cam0",
+  "session_id": "9c2a1f3e-4d5b-4c6a-9e8f-0a1b2c3d4e5f",
+  "sequence": 42,
+  "artifact_version": "app-epi-1.0.0-fp16",
+  "payload": {
+    "frame_index": 42,
+    "image_width": 1280,
+    "image_height": 720,
+    "detections": [
+      {"detection_id": 0, "class": "pessoa", "confidence": 0.9412, "bbox": [412, 180, 598, 702]},
+      {"detection_id": 1, "class": "capacete", "confidence": 0.9604, "bbox": [450, 182, 540, 255]},
+      {"detection_id": 2, "class": "colete", "confidence": 0.9318, "bbox": [425, 290, 585, 510]}
+    ]
+  }
+}
