@@ -58,7 +58,7 @@ Executa a suíte de auditoria `I1/tests/test_i1_sprint3.py`, validando:
 - Emissão de `"detections": []` em quadros vazios e bloqueio de duplicatas por `message_id` (UUID v4);
 - Pré-processamento dinâmico (`BGR`, `RGB`, `GRAY`, `NV12`) e NMS agrupado por classe;
 - Tratamento dos 5 códigos de erro formais da biblioteca `P2`;
-- Reinício determinístico de `sequence = 0` em eventos `START`, `SEEK`, `LOOP` e `RESTART` (**T6**);
+- Reinício de `sequence = 0` somente na troca de `session_id` (P4/P6 geram sessão nova em `START`, `SEEK`, `LOOP`, `RESTART` e `RECONNECT`); cenários completos em `I1/tests/test_session.py` (**T6**);
 - Supressão de quadro corrompido com log `[B2-OBS]` e lacuna implícita em `sequence` (**T7**);
 - Execução fim a fim do **Degrau A** com o modelo ONNX real (**T16**).
 

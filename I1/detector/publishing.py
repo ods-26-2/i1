@@ -8,7 +8,7 @@ from datetime import datetime
 import json
 from typing import Any, Protocol
 
-from .contracts import Detection, DetectionPayload, EvSinalEnvelope, Frame, utc_now_iso_ms
+from .contracts import Detection, DetectionPayload, EvSinalEnvelope, Frame, new_message_id, utc_now_iso_ms
 from .schema_validation import schema_errors
 
 
@@ -35,6 +35,8 @@ def build_envelope(
     sequence: int,
     artifact_version: str,
     detections: list[Detection],
+    published_at: str | None = None,
+    message_id: str | None = None,
 ) -> EvSinalEnvelope:
     payload = DetectionPayload(
         frame_index=frame.frame_index,
@@ -49,7 +51,8 @@ def build_envelope(
         sequence=sequence,
         artifact_version=artifact_version,
         payload=payload,
-        published_at=utc_now_iso_ms(),
+        published_at=published_at or utc_now_iso_ms(),
+        message_id=message_id or new_message_id(),
     )
 
 

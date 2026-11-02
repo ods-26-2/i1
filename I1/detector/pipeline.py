@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from .config import AppConfig
-from .contracts import Frame, P2ExecutionError
+from .contracts import Frame, P2ExecutionError, new_message_id, utc_now_iso_ms
 from . inference import P2InferenceClient
 from .ingestion import FrameSource, preprocess_frame_to_bgr
 from .postprocessing import apply_nms, filter_by_confidence, finalize_detections
@@ -41,13 +41,20 @@ class DetectorPipeline:
         source: FrameSource,
         publisher: EventPublisher,
         inference_client: P2InferenceClient | None = None,
+        clock: Callable[[], str] = utc_now_iso_ms,
+        message_id_factory: Callable[[], str] = new_message_id,
     ) -> None:
         self.config = config
         self.source = source
         self.publisher = publisher
         self.inference_client = inference_client or P2InferenceClient()
+        # Injetáveis para que o replay de P6 seja testável de forma determinística (T6 / T17)
+        self.clock = clock
+        self.message_id_factory = message_id_factory
 
-        self.active_session_id: str = config.session_id
+        # Sessão ativa vem sempre dos metadados ods.p4.frame do quadro (P4 ao vivo, P6 em replay)
+        self.active_session_id: str | None = None
+        self.ended_session_ids: set[str] = set()
         self.sequence: int = 0
         self.effective_artifact_version: str = config.artifact_version
         self.telemetry_history: list[dict[str, Any]] = []
@@ -57,8 +64,10 @@ class DetectorPipeline:
         """Registro estruturado (JSON em uma linha) para a observabilidade de B2."""
         logger.log(level, "[B2-OBS] %s", json.dumps(record, ensure_ascii=False))
 
-    def _record_frame_drop(self, frame: Frame, sequence: int, stage: str, err: Exception) -> None:
-        code = classify_frame_error(stage, err)
+    def _record_frame_drop(
+        self, frame: Frame, sequence: int | None, stage: str, err: Exception, code: str | None = None
+    ) -> None:
+        code = code or classify_frame_error(stage, err)
         self.error_counts[code] = self.error_counts.get(code, 0) + 1
         self._log_observability(
             logging.ERROR,
@@ -87,22 +96,38 @@ class DetectorPipeline:
         # Especificação 6c (Seção 2.2): inserir o engine_version retornado por info() no artifact_version do envelope
         self.effective_artifact_version = info.engine_version
 
-    def handle_session_control_event(self, action: str, new_session_id: str | None = None) -> None:
+    def _switch_session(self, frame: Frame) -> None:
         """
-        RNF 4 / T6: Em eventos de START, SEEK, LOOP ou RESTART anunciados por ods.session.started,
-        atualiza o session_id ativo e reinicia sequence em 0.
+        RNF 4 / T6: sequence é contado por producer + session_id a partir de 0 (Especificação 1.0, seção 3).
+        P4 e P6 geram session_id novo em todo START, SEEK, LOOP, RESTART e RECONNECT (ods.session.started),
+        e o session_id viaja em cada quadro: a troca de sessão é detectada no próprio quadro e só ela zera sequence.
         """
-        action_upper = action.upper()
-        if action_upper in {"START", "SEEK", "LOOP", "RESTART"}:
-            if new_session_id:
-                self.active_session_id = new_session_id
-            self.sequence = 0
-            logger.info(f"[B2-OBS] Sessão reiniciada ({action_upper}): session_id={self.active_session_id}, sequence=0")
+        previous = self.active_session_id
+        if previous is not None:
+            self.ended_session_ids.add(previous)
+        self.active_session_id = frame.session_id
+        self.sequence = 0
+        self._log_observability(
+            logging.INFO,
+            {
+                "event": "session_changed",
+                "source_id": frame.source_id,
+                "session_id": frame.session_id,
+                "previous_session_id": previous,
+                "frame_index": frame.frame_index,
+                "captured_at": frame.captured_at,
+            },
+        )
 
     def process_single_frame(self, frame: Frame) -> dict[str, Any] | None:
-        # Verifica mudança automática de session_id vinda nos metadados de P4/P6 (RNF 4)
+        if frame.session_id in self.ended_session_ids:
+            # Quadro atrasado de sessão já encerrada: publicá-lo reabriria a sessão e repetiria (session_id, sequence)
+            self._record_frame_drop(
+                frame, None, "session", ValueError("quadro de sessão encerrada"), code="STALE_SESSION"
+            )
+            return None
         if frame.session_id != self.active_session_id:
-            self.handle_session_control_event("START", new_session_id=frame.session_id)
+            self._switch_session(frame)
 
         current_seq = self.sequence
         self.sequence += 1  # Incrementa sempre para que descartes gerem lacuna implícita em sequence (RNF 5 / T7)
@@ -137,6 +162,8 @@ class DetectorPipeline:
                 sequence=current_seq,
                 artifact_version=self.effective_artifact_version,
                 detections=final_dets,
+                published_at=self.clock(),
+                message_id=self.message_id_factory(),
             )
             published_dict = self.publisher.publish(envelope)
         except Exception as err:
