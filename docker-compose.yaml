@@ -5,7 +5,7 @@ services:
   # ============================================================================
   i1-ci-tests:
     build: .
-    command: ["python3", "I1/tests/test_i1_sprint3.py"]
+    command: ["python3", "-m", "unittest", "discover", "-s", "I1/tests", "-p", "test_*.py", "-v"]
 
   # ============================================================================
   # 2. MOCK PRODUCER - MODO STDOUT (Inspeção local rápida no terminal)

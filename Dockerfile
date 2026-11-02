@@ -25,4 +25,4 @@ COPY schemas/ /app/schemas/
 ENV PYTHONPATH=/app:/app/I1
 
 # Por padrão, executa a suíte de validação de contrato de I1
-CMD ["python3", "I1/tests/test_i1_sprint3.py"]
+CMD ["python3", "-m", "unittest", "discover", "-s", "I1/tests", "-p", "test_*.py", "-v"]

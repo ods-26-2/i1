@@ -1,0 +1,5 @@
+# Suíte de contrato de ods.i1.detections (T15): schema, exemplos, mock e publicador, sem GPU nem torch.
+# Versões validadas localmente em 2026-11-02.
+numpy==2.5.4
+jsonschema==4.26.0
+PyYAML==6.0.3
