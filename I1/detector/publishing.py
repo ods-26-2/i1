@@ -1,93 +1,161 @@
 """
-publishing.py — Módulo 4 do pipeline de I1.
-
-build_event monta o Envelope padrão do barramento (schema, schema_version,
-message_type, producer, producer_version, published_at) em torno do
-DetectionPayload específico de I1. Publisher é a interface mínima para entregar
-esse envelope; hoje só existe MockPublisher.
+publishing.py — Validação de schema B1 acoplada, cálculo de latência e publicação EV-SINAL (T2, T12).
 """
 
 from __future__ import annotations
 
+from datetime import datetime
 import json
-import time
-from typing import Any, Dict, List, Protocol
+from typing import Any, Protocol
 
-from .contracts import AppConfig, Detection, DetectionPayload, Envelope, Frame
-
-# Identidade do componente — nome fixo, versão do código de I1 (não confundir
-# com artifact_version, que é a versão do modelo carregado).
-COMPONENT_NAME = "I1"
-COMPONENT_VERSION = "0.1.0"
-
-# Valor combinado com o time de contratos para este componente.
-SCHEMA_NAME = "ods.inferencia.deteccao_frame"
-SCHEMA_VERSION = "1.0"
+from .contracts import Detection, DetectionPayload, EvSinalEnvelope, Frame, utc_now_iso_ms
 
 
-def build_event(
+REQUIRED_ENVELOPE_FIELDS = {
+    "message_type",
+    "message_id",
+    "schema",
+    "schema_version",
+    "producer",
+    "published_at",
+    "captured_at",
+    "source_id",
+    "session_id",
+    "sequence",
+    "artifact_version",
+    "payload",
+}
+
+REQUIRED_PAYLOAD_FIELDS = {"frame_index", "image_width", "image_height", "detections"}
+
+
+def validate_ods_i1_detections_schema(msg_dict: dict[str, Any]) -> None:
+    """
+    Validador JSON Schema incorporado ao publicador (RNF 3 / T2 / T12).
+    Rejeita qualquer mensagem que viole o contrato ods.i1.detections 1.0 ou contenha campos legados.
+    """
+    missing_env = REQUIRED_ENVELOPE_FIELDS - set(msg_dict.keys())
+    if missing_env:
+        raise ValueError(f"Envelope inválido. Campos obrigatórios ausentes: {missing_env}")
+
+    if msg_dict["schema"] != "ods.i1.detections" or msg_dict["schema_version"] != "1.0":
+        raise ValueError("Schema ou versão incompatível com ods.i1.detections 1.0")
+
+    if msg_dict["producer"] != "I1" or msg_dict["message_type"] != "event":
+        raise ValueError("Producer deve ser 'I1' e message_type deve ser 'event'")
+
+    payload = msg_dict["payload"]
+    if not isinstance(payload, dict) or set(payload.keys()) != REQUIRED_PAYLOAD_FIELDS:
+        raise ValueError(f"Payload deve conter exclusivamente {REQUIRED_PAYLOAD_FIELDS}, recebido: {list(payload.keys())}")
+
+    for det in payload["detections"]:
+        if set(det.keys()) != {"detection_id", "class", "confidence", "bbox"}:
+            raise ValueError(f"Item de detecção inválido: {det}")
+        if not isinstance(det["detection_id"], int) or det["detection_id"] < 0:
+            raise ValueError("detection_id deve ser inteiro >= 0")
+        if not isinstance(det["bbox"], list) or len(det["bbox"]) != 4 or not all(isinstance(v, int) for v in det["bbox"]):
+            raise ValueError("bbox deve ser array de 4 inteiros [x_min, y_min, x_max, y_max]")
+
+
+def compute_e2e_latency_ms(captured_at_iso: str, published_at_iso: str) -> float:
+    """Calcula a latência ponta a ponta (published_at - captured_at) em milissegundos (RNF 5)."""
+    cap_dt = datetime.fromisoformat(captured_at_iso.replace("Z", "+00:00"))
+    pub_dt = datetime.fromisoformat(published_at_iso.replace("Z", "+00:00"))
+    return round((pub_dt - cap_dt).total_seconds() * 1000.0, 3)
+
+
+def build_envelope(
     frame: Frame,
-    detections: List[Detection],
-    config: AppConfig,
-) -> Envelope:
-    """Monta o envelope completo a partir do quadro, das detecções tratadas e da configuração da aplicação."""
-
+    sequence: int,
+    artifact_version: str,
+    detections: list[Detection],
+) -> EvSinalEnvelope:
     payload = DetectionPayload(
-        camera_id=frame.camera_id,
-        session_id=config.session_id,
-        sequence_number=frame.sequence_number,
-        captured_at=frame.captured_at,
-        artifact_id=config.artifact_id,
-        artifact_version=config.artifact_version,
+        frame_index=frame.frame_index,
+        image_width=frame.image_width,
+        image_height=frame.image_height,
         detections=detections,
     )
-
-    return Envelope(
-        schema=SCHEMA_NAME,
-        schema_version=SCHEMA_VERSION,
-        message_type="event",
-        producer=COMPONENT_NAME,
-        producer_version=COMPONENT_VERSION,
-        published_at=time.time(),
+    return EvSinalEnvelope(
+        captured_at=frame.captured_at,
+        source_id=frame.source_id,
+        session_id=frame.session_id,
+        sequence=sequence,
+        artifact_version=artifact_version,
         payload=payload,
+        published_at=utc_now_iso_ms(),
     )
 
 
-def event_to_wire_format(envelope: Envelope) -> Dict[str, Any]:
-    """Serializa o Envelope para o formato JSON exato exigido pelo barramento."""
-
-    return {
-        "schema": envelope.schema,
-        "schema_version": envelope.schema_version,
-        "message_type": envelope.message_type,
-        "producer": envelope.producer,
-        "producer_version": envelope.producer_version,
-        "published_at": envelope.published_at,
-        "payload": {
-            "camera_id": envelope.payload.camera_id,
-            "session_id": envelope.payload.session_id,
-            "sequence_number": envelope.payload.sequence_number,
-            "captured_at": envelope.payload.captured_at,
-            "artifact_id": envelope.payload.artifact_id,
-            "artifact_version": envelope.payload.artifact_version,
-            "detections": [
-                {
-                    "bbox": detection.bbox,
-                    "class": detection.class_name,
-                    "confidence": detection.confidence,
-                }
-                for detection in envelope.payload.detections
-            ],
-        },
-    }
-
-
-class Publisher(Protocol):
-    def publish(self, envelope: Envelope) -> None:
+class EventPublisher(Protocol):
+    def publish(self, envelope: EvSinalEnvelope) -> dict[str, Any]:
         ...
 
 
-class MockPublisher:
-    def publish(self, envelope: Envelope) -> None:
-        wire_envelope = event_to_wire_format(envelope)
-        print(json.dumps(wire_envelope, ensure_ascii=False))
+class ValidatedStdoutPublisher:
+    """Publicador para Degrau A e testes locais com validador B1 e deduplicação acoplados."""
+
+    def __init__(self, verbose: bool = True) -> None:
+        self.verbose = verbose
+        self._seen_message_ids: set[str] = set()
+        self.published_messages: list[dict[str, Any]] = []
+
+    def publish(self, envelope: EvSinalEnvelope) -> dict[str, Any]:
+        if envelope.message_id in self._seen_message_ids:
+            raise ValueError(f"Mensagem duplicada bloqueada no publicador: {envelope.message_id}")
+
+        msg_dict = envelope.to_dict()
+        validate_ods_i1_detections_schema(msg_dict)
+
+        self._seen_message_ids.add(envelope.message_id)
+        self.published_messages.append(msg_dict)
+
+        if self.verbose:
+            print(json.dumps(msg_dict, ensure_ascii=False))
+        return msg_dict
+
+# Adicione/substitua em I1/detector/publishing.py
+class ConfluentKafkaPublisher:
+    """Publicador Kafka parametrizado (RNF 3 / B3) com validação pré-envio."""
+
+    def __init__(self, bootstrap_servers: str, topic: str = "ods.i1.detections") -> None:
+        from confluent_kafka import Producer
+        self.topic = topic
+        self._seen_message_ids: set[str] = set()
+        conf = {
+            "bootstrap.servers": bootstrap_servers,
+            "enable.idempotence": True,
+            "message.timeout.ms": 5000,
+            "socket.timeout.ms": 3000,
+        }
+        self.producer = Producer(conf)
+        self.published_messages: list[dict[str, Any]] = []  
+
+    def publish(self, envelope: EvSinalEnvelope) -> dict[str, Any]:
+        if envelope.message_id in self._seen_message_ids:
+            raise ValueError(f"Duplicata bloqueada: {envelope.message_id}")
+
+        msg_dict = envelope.to_dict()
+        validate_ods_i1_detections_schema(msg_dict)
+        self._seen_message_ids.add(envelope.message_id)
+        self.published_messages.append(msg_dict)
+
+        payload_bytes = json.dumps(msg_dict, ensure_ascii=False).encode("utf-8")
+        try:
+            self.producer.produce(
+                self.topic,
+                key=envelope.source_id.encode("utf-8"),
+                value=payload_bytes
+            )
+            self.producer.poll(0)
+        except BufferError:
+            self.producer.flush(1.0)
+            self.producer.produce(
+                self.topic,
+                key=envelope.source_id.encode("utf-8"),
+                value=payload_bytes
+            )
+        return msg_dict
+
+    def flush(self, timeout: float = 3.0) -> int:
+        return self.producer.flush(timeout)

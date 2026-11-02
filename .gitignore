@@ -1,0 +1,12 @@
+# Caches Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+venv/
+.venv/
+
+# Saídas locais do detector
+*.jsonl
+
+# Pesos intermediários (apenas .onnx oficiais em I1/artifacts/ são versionados)
+*.pt

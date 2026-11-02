@@ -1,0 +1,34 @@
+# Controle de versão e metadados de IDE
+.git
+.gitignore
+.github
+.vscode
+.idea
+
+# Ambientes virtuais e caches Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+.pytest_cache/
+.mypy_cache/
+
+# Logs e saídas temporárias de treinamento Ultralytics/YOLO
+runs/
+wandb/
+*.log
+*.tmp
+
+# Pesos intermediários fora da pasta oficial de artefatos (I1/artifacts/**/*.onnx é mantido)
+*.pt
+*.jsonl
+
+# Documentação e arquivos de planejamento
+*.pdf
+*.tex
+*.aux
+*.out
