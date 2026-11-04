@@ -32,13 +32,21 @@ Os artefatos são produzidos pela **Frente Transversal B5**, mantida no reposit�
 │   │   ├── inference.py             # Cliente da API fechada P2 (load, infer, info, release)
 │   │   ├── postprocessing.py        # Filtro de confiança, NMS por classe e bbox inteira
 │   │   ├── publishing.py            # Validador B1 acoplado, deduplicação UUIDv4, Stdout/Kafka
+│   │   ├── schema_validation.py     # Validador gerado do JSON Schema oficial
 │   │   └── pipeline.py              # Orquestrador, controle de sessão (B2) e telemetria
 │   ├── tests/
-│   │   └── test_i1_sprint3.py       # Suíte automatizada de auditoria e contrato (T15)
-│   ├── mock_producer.py             # Gerador de eventos sintéticos para CI (B4) e consumidores
+│   │   ├── test_contract_schema.py  # Contrato: schema, exemplos, mock e publicador (sem GPU/torch)
+│   │   ├── test_session.py          # Sessão e sequence em replay (T6)
+│   │   ├── test_error_handling.py   # Representação de erro (T7)
+│   │   └── test_i1_sprint3.py       # Suíte de auditoria da Sprint 3 (inclui Degrau A)
+│   ├── mock_producer.py             # Produtor falso gerado dos exemplos do schema (B4 e consumidores)
 │   └── run_detector.py              # CLI principal para execução do pipeline I1
 ├── schemas/
-│   └── ods.i1.detections.v1.0.schema.json # Contrato formal JSON Schema (Draft 2020-12)
+│   ├── ods.i1.detections.v1.0.schema.json # Contrato formal JSON Schema (Draft 2020-12)
+│   └── examples/{valid,invalid}/    # Mensagens de exemplo para B1 e para a CI de B4
+├── .github/workflows/i1-tests.yml   # CI a cada push: contrato (leve) e pipeline completo
+├── requirements-contract.txt        # Dependências da suíte de contrato
+├── requirements.txt                 # Dependências do pipeline completo (Degrau A)
 ├── docs/diagrams/
 ├── Dockerfile
 ├── docker-compose.yaml
@@ -53,12 +61,15 @@ Os artefatos são produzidos pela **Frente Transversal B5**, mantida no reposit�
 Não é necessário configurar ambiente Python localmente. Todos os fluxos de teste, simulação e inferência estão containerizados no `docker-compose.yaml`.
 
 ### 2.1. Para a Equipe de Testes e CI (B4 / TRA-2 — Tarefa T15)
-Executa a suíte de auditoria `I1/tests/test_i1_sprint3.py`, validando:
-- Aderência estrita ao envelope **EV-SINAL** (`ods.i1.detections` v1.0) e rejeição de campos legados;
+A mesma suíte roda automaticamente a cada push no GitHub Actions (`.github/workflows/i1-tests.yml`), em dois jobs:
+`contract` (só `requirements-contract.txt`, sem GPU nem torch) e `pipeline` (todas as suítes, com o ONNX real na CPU).
+Nenhum job publica no Kafka. Localmente, via Docker, todas as suítes de `I1/tests/` validam:
+- Aderência estrita ao envelope **EV-SINAL** (`ods.i1.detections` v1.0), gerado do JSON Schema, contra os exemplos de `schemas/examples/` e rejeição de campos legados;
+- Produtor falso (`mock_producer.py`) gerado dos mesmos exemplos válidos e saída real do publicador conforme o schema;
 - Emissão de `"detections": []` em quadros vazios e bloqueio de duplicatas por `message_id` (UUID v4);
 - Pré-processamento dinâmico (`BGR`, `RGB`, `GRAY`, `NV12`) e NMS agrupado por classe;
 - Tratamento dos 5 códigos de erro formais da biblioteca `P2`;
-- Reinício determinístico de `sequence = 0` em eventos `START`, `SEEK`, `LOOP` e `RESTART` (**T6**);
+- Reinício de `sequence = 0` somente na troca de `session_id` (P4/P6 geram sessão nova em `START`, `SEEK`, `LOOP`, `RESTART` e `RECONNECT`); cenários completos em `I1/tests/test_session.py` (**T6**);
 - Supressão de quadro corrompido com log `[B2-OBS]` e lacuna implícita em `sequence` (**T7**);
 - Execução fim a fim do **Degrau A** com o modelo ONNX real (**T16**).
 
@@ -74,12 +85,14 @@ Emite eventos sintéticos validados pelo validador acoplado de B1:
   docker compose run --rm i1-mock-stdout
   ```
 
-- **Modo `kafka` (publica eventos no tópico `ods.i1.detections` do broker oficial `34.66.235.91:9093`):**
+- **Modo `kafka` (publica no tópico `ods.i1.detections`):** o endereço do broker é obrigatório e vem só de
+  `ODS_KAFKA_BROKER` (ou `--broker`). Não há padrão embutido, para que testes e CI nunca publiquem no broker
+  da nuvem por engano. Para os testes integrados da disciplina (B3):
   ```bash
-  docker compose run --rm i1-mock-kafka
+  ODS_KAFKA_BROKER=34.66.235.91:9093 docker compose run --rm i1-mock-kafka
   ```
 
-- **Customizando a quantidade de quadros ou o endereço do broker Kafka:**
+- **Customizando a quantidade de quadros:**
   ```bash
   ODS_KAFKA_BROKER=34.66.235.91:9093 docker compose run --rm i1-mock-kafka \
     python3 I1/mock_producer.py --frames 20 --mode kafka
@@ -116,7 +129,7 @@ Comprova experimentalmente a propriedade **"Um artefato por aplicação, um comp
 | `--source` | `"0"` | `0` para webcam, caminho de vídeo `.mp4` ou diretório de imagens de teste. |
 | `--max-frames` | `20` | Limite de quadros a processar na sessão. |
 | `--conf` | `0.50` | Limiar de confiança mínimo para manter detecções. |
-| `--mode` | `"stdout"` | Destino de publicação: `stdout` (terminal) ou `kafka` (broker B3). |
+| `--mode` | `"stdout"` | Destino de publicação: `stdout` (terminal) ou `kafka` (broker B3, exige `ODS_KAFKA_BROKER`). |
 | `--output-jsonl` | `"degrau_a_events.jsonl"` | Arquivo local onde os eventos validados são persistidos. |
 
 ---

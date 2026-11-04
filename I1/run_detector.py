@@ -12,6 +12,7 @@ from detector.publishing import ConfluentKafkaPublisher, ValidatedStdoutPublishe
 
 import argparse
 import json
+import logging
 from pathlib import Path
 import sys
 from typing import Iterator
@@ -23,9 +24,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from detector.config import AppConfig
-from detector.contracts import Frame, utc_now_iso_ms
+from detector.contracts import Frame, P2ExecutionError, utc_now_iso_ms
 from detector.inference import P2InferenceClient, UltralyticsP2Adapter
-from detector.ingestion import OpenCVFrameSource
+from detector.ingestion import OpenCVFrameSource, unreadable_frame
 from detector.pipeline import DetectorPipeline
 from detector.publishing import ValidatedStdoutPublisher
 
@@ -48,6 +49,7 @@ class DirectoryImageSource:
         for idx, img_path in enumerate(files):
             bgr = cv2.imread(str(img_path))
             if bgr is None:
+                yield unreadable_frame(self.source_id, self.session_id, idx)
                 continue
             h, w = bgr.shape[:2]
             yield Frame(
@@ -97,6 +99,9 @@ def main() -> None:
 
     args = parser.parse_args()
 
+    # Registros [B2-OBS] vão para stderr, sem misturar com os eventos JSON emitidos no stdout
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
+
     with open(args.metadata, "r", encoding="utf-8") as f:
         meta = json.load(f)
 
@@ -127,7 +132,11 @@ def main() -> None:
     pipeline = DetectorPipeline(cfg, source, publisher, client)
 
     print(f"[I1] Iniciando execução com artefato {cfg.artifact_id} v{cfg.artifact_version} sobre '{args.source}'...\n")
-    pipeline.run()  
+    try:
+        pipeline.run()
+    except P2ExecutionError as err:
+        print(f"[I1] Falha ao carregar o modelo ({err.code}); nenhum quadro foi processado.", file=sys.stderr)
+        sys.exit(2)
 
     if hasattr(publisher, "flush"):
         remaining = publisher.flush()
@@ -150,6 +159,7 @@ def main() -> None:
     print(f"  - Quadros processados e validados (B1): {total_frames}")
     print(f"  - Total de objetos detectados:          {total_dets}")
     print(f"  - Latência média de inferência:         {avg_lat:.2f} ms")
+    print(f"  - Quadros descartados por código:       {pipeline.error_counts or 'nenhum'}")
     print(f"  - Eventos salvos em:                    {out_file.resolve()}")
 
 

@@ -4,17 +4,32 @@ pipeline.py — Orquestrador do componente I1 (Arquitetura 6c).
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Any
+from typing import Any, Callable
 
 from .config import AppConfig
-from .contracts import Frame, P2ExecutionError
+from .contracts import Frame, P2ExecutionError, new_message_id, utc_now_iso_ms
 from . inference import P2InferenceClient
 from .ingestion import FrameSource, preprocess_frame_to_bgr
 from .postprocessing import apply_nms, filter_by_confidence, finalize_detections
 from .publishing import EventPublisher, build_envelope, compute_e2e_latency_ms
 
 logger = logging.getLogger("ods.i1.observability")
+
+
+def classify_frame_error(stage: str, err: Exception) -> str:
+    """
+    Código de erro registrado na observabilidade (B2) para um quadro descartado (T7).
+    Erros de P2 mantêm o código formal; os demais recebem um código interno de I1 conforme o estágio.
+    """
+    if isinstance(err, P2ExecutionError):
+        return err.code
+    if isinstance(err, ValueError) and stage == "preprocess":
+        return "INVALID_FRAME"
+    if isinstance(err, ValueError) and stage == "publish":
+        return "CONTRACT_VIOLATION"
+    return "INTERNAL_ERROR"
 
 
 class DetectorPipeline:
@@ -26,16 +41,48 @@ class DetectorPipeline:
         source: FrameSource,
         publisher: EventPublisher,
         inference_client: P2InferenceClient | None = None,
+        clock: Callable[[], str] = utc_now_iso_ms,
+        message_id_factory: Callable[[], str] = new_message_id,
     ) -> None:
         self.config = config
         self.source = source
         self.publisher = publisher
         self.inference_client = inference_client or P2InferenceClient()
+        # Injetáveis para que o replay de P6 seja testável de forma determinística (T6 / T17)
+        self.clock = clock
+        self.message_id_factory = message_id_factory
 
-        self.active_session_id: str = config.session_id
+        # Sessão ativa vem sempre dos metadados ods.p4.frame do quadro (P4 ao vivo, P6 em replay)
+        self.active_session_id: str | None = None
+        self.ended_session_ids: set[str] = set()
         self.sequence: int = 0
         self.effective_artifact_version: str = config.artifact_version
         self.telemetry_history: list[dict[str, Any]] = []
+        self.error_counts: dict[str, int] = {}
+
+    def _log_observability(self, level: int, record: dict[str, Any]) -> None:
+        """Registro estruturado (JSON em uma linha) para a observabilidade de B2."""
+        logger.log(level, "[B2-OBS] %s", json.dumps(record, ensure_ascii=False))
+
+    def _record_frame_drop(
+        self, frame: Frame, sequence: int | None, stage: str, err: Exception, code: str | None = None
+    ) -> None:
+        code = code or classify_frame_error(stage, err)
+        self.error_counts[code] = self.error_counts.get(code, 0) + 1
+        self._log_observability(
+            logging.ERROR,
+            {
+                "event": "frame_dropped",
+                "error_code": code,
+                "stage": stage,
+                "source_id": frame.source_id,
+                "session_id": frame.session_id,
+                "sequence": sequence,
+                "frame_index": frame.frame_index,
+                "artifact_version": self.effective_artifact_version,
+                "message": str(err),
+            },
+        )
 
     def initialize(self) -> None:
         """Carrega o motor via P2.load() e obtém engine_version via P2.info() (T11)."""
@@ -49,60 +96,80 @@ class DetectorPipeline:
         # Especificação 6c (Seção 2.2): inserir o engine_version retornado por info() no artifact_version do envelope
         self.effective_artifact_version = info.engine_version
 
-    def handle_session_control_event(self, action: str, new_session_id: str | None = None) -> None:
+    def _switch_session(self, frame: Frame) -> None:
         """
-        RNF 4 / T6: Em eventos de START, SEEK, LOOP ou RESTART anunciados por ods.session.started,
-        atualiza o session_id ativo e reinicia sequence em 0.
+        RNF 4 / T6: sequence é contado por producer + session_id a partir de 0 (Especificação 1.0, seção 3).
+        P4 e P6 geram session_id novo em todo START, SEEK, LOOP, RESTART e RECONNECT (ods.session.started),
+        e o session_id viaja em cada quadro: a troca de sessão é detectada no próprio quadro e só ela zera sequence.
         """
-        action_upper = action.upper()
-        if action_upper in {"START", "SEEK", "LOOP", "RESTART"}:
-            if new_session_id:
-                self.active_session_id = new_session_id
-            self.sequence = 0
-            logger.info(f"[B2-OBS] Sessão reiniciada ({action_upper}): session_id={self.active_session_id}, sequence=0")
+        previous = self.active_session_id
+        if previous is not None:
+            self.ended_session_ids.add(previous)
+        self.active_session_id = frame.session_id
+        self.sequence = 0
+        self._log_observability(
+            logging.INFO,
+            {
+                "event": "session_changed",
+                "source_id": frame.source_id,
+                "session_id": frame.session_id,
+                "previous_session_id": previous,
+                "frame_index": frame.frame_index,
+                "captured_at": frame.captured_at,
+            },
+        )
 
     def process_single_frame(self, frame: Frame) -> dict[str, Any] | None:
-        # Verifica mudança automática de session_id vinda nos metadados de P4/P6 (RNF 4)
+        if frame.session_id in self.ended_session_ids:
+            # Quadro atrasado de sessão já encerrada: publicá-lo reabriria a sessão e repetiria (session_id, sequence)
+            self._record_frame_drop(
+                frame, None, "session", ValueError("quadro de sessão encerrada"), code="STALE_SESSION"
+            )
+            return None
         if frame.session_id != self.active_session_id:
-            self.handle_session_control_event("START", new_session_id=frame.session_id)
+            self._switch_session(frame)
 
         current_seq = self.sequence
         self.sequence += 1  # Incrementa sempre para que descartes gerem lacuna implícita em sequence (RNF 5 / T7)
 
+        # Diretriz RNF 5 / T7: qualquer falha em qualquer estágio descarta o quadro sem publicar detecção falsa,
+        # registra o erro na observabilidade B2 e sinaliza a perda pela lacuna implícita em sequence.
+        stage = "preprocess"
         try:
             bgr = preprocess_frame_to_bgr(frame)
+
+            stage = "infer"
             raw_dets, hw_metrics = self.inference_client.run_inference(bgr)
-        except (ValueError, P2ExecutionError) as err:
-            # Diretriz RNF 5 / T7: Não publicar detecção falsa; registrar falha na observabilidade B2
-            # e sinalizar perda pela lacuna implícita em sequence.
-            logger.error(
-                f"[B2-OBS] Falha no quadro frame_index={frame.frame_index} (sequence={current_seq} suprimido): {err}"
+            if hw_metrics.gpu_memory_mb > self.config.max_gpu_memory_mb:
+                logger.warning(
+                    f"[B2-OBS] Consumo de VRAM ({hw_metrics.gpu_memory_mb} MB) excedeu orçamento ({self.config.max_gpu_memory_mb} MB)"
+                )
+
+            stage = "postprocess"
+            filtered = filter_by_confidence(raw_dets, self.config.conf_threshold)
+            nms_dets = apply_nms(filtered, self.config.nms_iou_threshold)
+            final_dets = finalize_detections(
+                detections=nms_dets,
+                class_map=self.config.class_map,
+                image_width=frame.image_width,
+                image_height=frame.image_height,
+                enabled_classes=self.config.enabled_classes,
             )
+
+            stage = "publish"
+            envelope = build_envelope(
+                frame=frame,
+                sequence=current_seq,
+                artifact_version=self.effective_artifact_version,
+                detections=final_dets,
+                published_at=self.clock(),
+                message_id=self.message_id_factory(),
+            )
+            published_dict = self.publisher.publish(envelope)
+        except Exception as err:
+            self._record_frame_drop(frame, current_seq, stage, err)
             return None
 
-        if hw_metrics.gpu_memory_mb > self.config.max_gpu_memory_mb:
-            logger.warning(
-                f"[B2-OBS] Consumo de VRAM ({hw_metrics.gpu_memory_mb} MB) excedeu orçamento ({self.config.max_gpu_memory_mb} MB)"
-            )
-
-        filtered = filter_by_confidence(raw_dets, self.config.conf_threshold)
-        nms_dets = apply_nms(filtered, self.config.nms_iou_threshold)
-        final_dets = finalize_detections(
-            detections=nms_dets,
-            class_map=self.config.class_map,
-            image_width=frame.image_width,
-            image_height=frame.image_height,
-            enabled_classes=self.config.enabled_classes,
-        )
-
-        envelope = build_envelope(
-            frame=frame,
-            sequence=current_seq,
-            artifact_version=self.effective_artifact_version,
-            detections=final_dets,
-        )
-
-        published_dict = self.publisher.publish(envelope)
         e2e_latency_ms = compute_e2e_latency_ms(envelope.captured_at, envelope.published_at)
 
         self.telemetry_history.append(
@@ -118,7 +185,22 @@ class DetectorPipeline:
         return published_dict
 
     def run(self) -> None:
-        self.initialize()
+        try:
+            self.initialize()
+        except P2ExecutionError as err:
+            # Falha de carregamento é fatal: nenhum quadro é consumido nem publicado (T7)
+            self.error_counts[err.code] = self.error_counts.get(err.code, 0) + 1
+            self._log_observability(
+                logging.CRITICAL,
+                {
+                    "event": "engine_load_failed",
+                    "error_code": err.code,
+                    "engine_ref": self.config.engine_ref,
+                    "artifact_version": self.config.artifact_version,
+                    "message": str(err),
+                },
+            )
+            raise
         try:
             for frame in self.source.frames():
                 self.process_single_frame(frame)

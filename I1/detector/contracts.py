@@ -34,6 +34,11 @@ def utc_now_iso_ms() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
+def new_message_id() -> str:
+    """Gera o message_id (UUID v4) usado pelos consumidores para deduplicação (RNF 3)."""
+    return str(uuid.uuid4())
+
+
 @dataclass(frozen=True)
 class Frame:
     """Representa um quadro bruto e seus metadados sob o contrato ods.p4.frame (P4/P6)."""
@@ -122,7 +127,7 @@ class EvSinalEnvelope:
     artifact_version: str
     payload: DetectionPayload
     message_type: str = "event"
-    message_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    message_id: str = field(default_factory=new_message_id)
     schema: str = "ods.i1.detections"
     schema_version: str = "1.0"
     producer: str = "I1"

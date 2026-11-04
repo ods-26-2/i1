@@ -47,8 +47,8 @@ Estas 3 tarefas **já estão 100% programadas e testadas no código**, precisand
 ### 3.2. [T6] Homologar Regra de Sessão e `sequence` com TRA-2
 - **Responsável MOD-1:** Eduardo
 - **Contato Externo:** Vítor José Batista Oliveira (Squad TRA-2 / Frentes B2 e P6)
-- **Como comprovar:** No código (`I1/detector/pipeline.py`, método `handle_session_control_event`), sempre que o `session_id` muda ou chega um comando `START`, `SEEK`, `LOOP` ou `RESTART`, o componente I1 atualiza a sessão ativa, zera o contador (`sequence = 0`) e emite o log `[B2-OBS] Sessão reiniciada`.
-- **O que fazer para fechar:** Rodar `python3 I1/tests/test_i1_sprint3.py`, copiar a saída do **Teste 04 (`test_04_t6_t7_sessao_seek_loop_e_salto_quadro_corrompido`)** e enviar ao Vítor José demonstrando o reset determinístico para `sequence = 0`.
+- **Como comprovar:** No código (`I1/detector/pipeline.py`, método `_switch_session`), o I1 copia `session_id`, `captured_at` e `frame_index` dos metadados `ods.p4.frame` de cada quadro. Como P4/P6 geram `session_id` novo em todo `START`, `SEEK`, `LOOP`, `RESTART` e `RECONNECT`, o contador `sequence` volta a `0` somente quando o `session_id` do quadro muda, com o log `[B2-OBS]` `session_changed`. Quadros atrasados de sessão já encerrada são descartados (`STALE_SESSION`) para não repetir pares (`session_id`, `sequence`).
+- **O que fazer para fechar:** Rodar `python3 I1/tests/test_session.py` (cenários de replay com SEEK e LOOP, quadro atrasado e replay determinístico) e enviar a saída ao Vítor José para validação da regra.
 
 ### 3.3. [T7] Homologar Representação de Erro e Lacuna de `sequence` com TRA-1
 - **Responsável MOD-1:** Eduardo

@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir \
     numpy \
     opencv-python-headless \
     pyyaml \
+    jsonschema \
     confluent-kafka \
     ultralytics \
     onnx \
@@ -22,7 +23,6 @@ COPY I1/ /app/I1/
 COPY schemas/ /app/schemas/
 
 ENV PYTHONPATH=/app:/app/I1
-ENV ODS_KAFKA_BROKER=34.66.235.91:9093
 
 # Por padrão, executa a suíte de validação de contrato de I1
-CMD ["python3", "I1/tests/test_i1_sprint3.py"]
+CMD ["python3", "-m", "unittest", "discover", "-s", "I1/tests", "-p", "test_*.py", "-v"]

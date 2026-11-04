@@ -8,53 +8,19 @@ from datetime import datetime
 import json
 from typing import Any, Protocol
 
-from .contracts import Detection, DetectionPayload, EvSinalEnvelope, Frame, utc_now_iso_ms
-
-
-REQUIRED_ENVELOPE_FIELDS = {
-    "message_type",
-    "message_id",
-    "schema",
-    "schema_version",
-    "producer",
-    "published_at",
-    "captured_at",
-    "source_id",
-    "session_id",
-    "sequence",
-    "artifact_version",
-    "payload",
-}
-
-REQUIRED_PAYLOAD_FIELDS = {"frame_index", "image_width", "image_height", "detections"}
+from .contracts import Detection, DetectionPayload, EvSinalEnvelope, Frame, new_message_id, utc_now_iso_ms
+from .schema_validation import schema_errors
 
 
 def validate_ods_i1_detections_schema(msg_dict: dict[str, Any]) -> None:
     """
     Validador JSON Schema incorporado ao publicador (RNF 3 / T2 / T12).
-    Rejeita qualquer mensagem que viole o contrato ods.i1.detections 1.0 ou contenha campos legados.
+    Valida contra schemas/ods.i1.detections.v1.0.schema.json e rejeita qualquer mensagem fora do contrato,
+    inclusive campos legados (camera_id, sequence_number, artifact_id) no envelope ou no payload.
     """
-    missing_env = REQUIRED_ENVELOPE_FIELDS - set(msg_dict.keys())
-    if missing_env:
-        raise ValueError(f"Envelope inválido. Campos obrigatórios ausentes: {missing_env}")
-
-    if msg_dict["schema"] != "ods.i1.detections" or msg_dict["schema_version"] != "1.0":
-        raise ValueError("Schema ou versão incompatível com ods.i1.detections 1.0")
-
-    if msg_dict["producer"] != "I1" or msg_dict["message_type"] != "event":
-        raise ValueError("Producer deve ser 'I1' e message_type deve ser 'event'")
-
-    payload = msg_dict["payload"]
-    if not isinstance(payload, dict) or set(payload.keys()) != REQUIRED_PAYLOAD_FIELDS:
-        raise ValueError(f"Payload deve conter exclusivamente {REQUIRED_PAYLOAD_FIELDS}, recebido: {list(payload.keys())}")
-
-    for det in payload["detections"]:
-        if set(det.keys()) != {"detection_id", "class", "confidence", "bbox"}:
-            raise ValueError(f"Item de detecção inválido: {det}")
-        if not isinstance(det["detection_id"], int) or det["detection_id"] < 0:
-            raise ValueError("detection_id deve ser inteiro >= 0")
-        if not isinstance(det["bbox"], list) or len(det["bbox"]) != 4 or not all(isinstance(v, int) for v in det["bbox"]):
-            raise ValueError("bbox deve ser array de 4 inteiros [x_min, y_min, x_max, y_max]")
+    errors = schema_errors(msg_dict)
+    if errors:
+        raise ValueError("Mensagem viola ods.i1.detections 1.0: " + "; ".join(errors))
 
 
 def compute_e2e_latency_ms(captured_at_iso: str, published_at_iso: str) -> float:
@@ -69,6 +35,8 @@ def build_envelope(
     sequence: int,
     artifact_version: str,
     detections: list[Detection],
+    published_at: str | None = None,
+    message_id: str | None = None,
 ) -> EvSinalEnvelope:
     payload = DetectionPayload(
         frame_index=frame.frame_index,
@@ -83,7 +51,8 @@ def build_envelope(
         sequence=sequence,
         artifact_version=artifact_version,
         payload=payload,
-        published_at=utc_now_iso_ms(),
+        published_at=published_at or utc_now_iso_ms(),
+        message_id=message_id or new_message_id(),
     )
 
 
@@ -118,7 +87,12 @@ class ValidatedStdoutPublisher:
 class ConfluentKafkaPublisher:
     """Publicador Kafka parametrizado (RNF 3 / B3) com validação pré-envio."""
 
-    def __init__(self, bootstrap_servers: str, topic: str = "ods.i1.detections") -> None:
+    def __init__(self, bootstrap_servers: str | None, topic: str = "ods.i1.detections") -> None:
+        if not bootstrap_servers:
+            raise ValueError(
+                "Broker Kafka não configurado: defina ODS_KAFKA_BROKER (ou broker_bootstrap_servers na build). "
+                "Não há endereço padrão, para que testes e CI nunca publiquem no broker da nuvem por engano."
+            )
         from confluent_kafka import Producer
         self.topic = topic
         self._seen_message_ids: set[str] = set()

@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 import yaml
 
+BROKER_ENV_VAR = "ODS_KAFKA_BROKER"
+
 
 @dataclass(frozen=True)
 class AppConfig:
@@ -25,9 +27,8 @@ class AppConfig:
     source_id: str = "cam0"
     session_id: str = "00000000-0000-4000-8000-000000000001"
     pixel_format: str = "BGR"
-    broker_bootstrap_servers: str = field(
-        default_factory=lambda: os.getenv("ODS_KAFKA_BROKER", "34.66.235.91:9093")
-    )
+    # Sem padrão embutido (RNF 3): o broker vem só da build ou de ODS_KAFKA_BROKER; vazio impede o modo kafka
+    broker_bootstrap_servers: str = field(default_factory=lambda: os.getenv(BROKER_ENV_VAR, ""))
     topic: str = "ods.i1.detections"
     max_gpu_memory_mb: float = 2048.0         # Orçamento máximo alocado por SIS-1 (RNF 1)
 
@@ -68,9 +69,7 @@ class AppConfig:
             source_id=str(raw.get("source_id", "cam0")),
             session_id=str(raw.get("session_id", "00000000-0000-4000-8000-000000000001")),
             pixel_format=str(raw.get("pixel_format", "BGR")),
-            broker_bootstrap_servers=str(
-                raw.get("broker_bootstrap_servers", os.getenv("ODS_KAFKA_BROKER", "34.66.235.91:9093"))
-            ),
+            broker_bootstrap_servers=str(raw.get("broker_bootstrap_servers", os.getenv(BROKER_ENV_VAR, ""))),
             topic=str(raw.get("topic", "ods.i1.detections")),
             max_gpu_memory_mb=float(raw.get("max_gpu_memory_mb", 2048.0)),
         )
