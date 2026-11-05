@@ -6,16 +6,19 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import OrderedDict, deque
 from typing import Any, Callable
 
 from .config import AppConfig
 from .contracts import Frame, P2ExecutionError, new_message_id, utc_now_iso_ms
-from . inference import P2InferenceClient
+from .inference import P2InferenceClient
 from .ingestion import FrameSource, preprocess_frame_to_bgr
 from .postprocessing import apply_nms, filter_by_confidence, finalize_detections
 from .publishing import EventPublisher, build_envelope, compute_e2e_latency_ms
 
 logger = logging.getLogger("ods.i1.observability")
+ENDED_SESSION_CACHE_SIZE = 4096
+TELEMETRY_HISTORY_SIZE = 4096
 
 
 def classify_frame_error(stage: str, err: Exception) -> str:
@@ -54,10 +57,13 @@ class DetectorPipeline:
 
         # Sessão ativa vem sempre dos metadados ods.p4.frame do quadro (P4 ao vivo, P6 em replay)
         self.active_session_id: str | None = None
-        self.ended_session_ids: set[str] = set()
+        self.ended_session_ids: OrderedDict[str, None] = OrderedDict()
         self.sequence: int = 0
+        self.last_frame_index: int | None = None
         self.effective_artifact_version: str = config.artifact_version
-        self.telemetry_history: list[dict[str, Any]] = []
+        self.telemetry_history: deque[dict[str, Any]] = deque(maxlen=TELEMETRY_HISTORY_SIZE)
+        self.telemetry_count = 0
+        self.total_infer_latency_ms = 0.0
         self.error_counts: dict[str, int] = {}
 
     def _log_observability(self, level: int, record: dict[str, Any]) -> None:
@@ -91,6 +97,7 @@ class DetectorPipeline:
             options={
                 "artifact_id": self.config.artifact_id,
                 "artifact_version": self.config.artifact_version,
+                "num_classes": len(self.config.classes),
             },
         )
         # Especificação 6c (Seção 2.2): inserir o engine_version retornado por info() no artifact_version do envelope
@@ -104,9 +111,13 @@ class DetectorPipeline:
         """
         previous = self.active_session_id
         if previous is not None:
-            self.ended_session_ids.add(previous)
+            self.ended_session_ids[previous] = None
+            self.ended_session_ids.move_to_end(previous)
+            if len(self.ended_session_ids) > ENDED_SESSION_CACHE_SIZE:
+                self.ended_session_ids.popitem(last=False)
         self.active_session_id = frame.session_id
         self.sequence = 0
+        self.last_frame_index = None
         self._log_observability(
             logging.INFO,
             {
@@ -128,9 +139,24 @@ class DetectorPipeline:
             return None
         if frame.session_id != self.active_session_id:
             self._switch_session(frame)
+        elif self.last_frame_index is not None and frame.frame_index <= self.last_frame_index:
+            current_seq = self.sequence
+            self.sequence += 1
+            self._record_frame_drop(
+                frame,
+                current_seq,
+                "session",
+                ValueError(
+                    f"frame_index não cresceu dentro da sessão {frame.session_id}: "
+                    f"{frame.frame_index} <= {self.last_frame_index}"
+                ),
+                code="SESSION_PROTOCOL_VIOLATION",
+            )
+            return None
 
         current_seq = self.sequence
         self.sequence += 1  # Incrementa sempre para que descartes gerem lacuna implícita em sequence (RNF 5 / T7)
+        self.last_frame_index = frame.frame_index
 
         # Diretriz RNF 5 / T7: qualquer falha em qualquer estágio descarta o quadro sem publicar detecção falsa,
         # registra o erro na observabilidade B2 e sinaliza a perda pela lacuna implícita em sequence.
@@ -170,18 +196,18 @@ class DetectorPipeline:
             self._record_frame_drop(frame, current_seq, stage, err)
             return None
 
-        e2e_latency_ms = compute_e2e_latency_ms(envelope.captured_at, envelope.published_at)
-
         self.telemetry_history.append(
             {
                 "sequence": current_seq,
                 "frame_index": frame.frame_index,
                 "infer_latency_ms": hw_metrics.latency_ms,
-                "e2e_latency_ms": e2e_latency_ms,
+                "e2e_latency_ms": compute_e2e_latency_ms(envelope.captured_at, envelope.published_at),
                 "gpu_memory_mb": hw_metrics.gpu_memory_mb,
                 "num_detections": len(final_dets),
             }
         )
+        self.telemetry_count += 1
+        self.total_infer_latency_ms += hw_metrics.latency_ms
         return published_dict
 
     def run(self) -> None:

@@ -10,7 +10,7 @@ from typing import Any, Literal
 import uuid
 import numpy as np
 
-PixelFormat = Literal["NV12", "RGB", "BGR", "GRAY"]
+PixelFormat = Literal["NV12", "RGB", "BGR", "GRAY", "RG10"]
 
 P2ErrorCode = Literal[
     "ENGINE_NOT_FOUND",
@@ -19,7 +19,6 @@ P2ErrorCode = Literal[
     "INVALID_INPUT_SHAPE",
     "RUNTIME_ERROR",
 ]
-
 
 class P2ExecutionError(RuntimeError):
     """Exceção tipada para os códigos de erro formais da biblioteca P2 (T11)."""
@@ -70,6 +69,9 @@ class InferenceMetrics:
     gpu_memory_mb: float
 
 
+P2InferenceMetrics = InferenceMetrics
+
+
 @dataclass(frozen=True)
 class EngineInfo:
     """Metadados retornados por info(handle) da biblioteca P2."""
@@ -78,6 +80,9 @@ class EngineInfo:
     output_shape: list[int]
     precision: str
     max_batch: int = 1
+
+
+P2EngineInfo = EngineInfo
 
 
 @dataclass(frozen=True)

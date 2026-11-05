@@ -114,6 +114,20 @@ class TestPublisherOutputMatchesSchema(unittest.TestCase):
             publisher.publish(envelope)
         self.assertEqual(publisher.published_messages, [])
 
+    def test_publisher_blocks_nonsequential_or_out_of_frame_detections(self) -> None:
+        frame = self._frame("9c2a1f3e-4d5b-4c6a-9e8f-0a1b2c3d4e5f")
+        publisher = ValidatedStdoutPublisher(verbose=False)
+        invalid_detections = [
+            [Detection(detection_id=1, class_name="objeto", confidence=0.9, bbox=[10, 20, 110, 60])],
+            [Detection(detection_id=0, class_name="objeto", confidence=0.9, bbox=[10, 20, 1281, 60])],
+            [Detection(detection_id=0, class_name="objeto", confidence=0.9, bbox=[10, 20, 10, 60])],
+        ]
+        for detections in invalid_detections:
+            envelope = build_envelope(frame, 0, "app-plates-1.0.0", detections)
+            with self.subTest(detections=detections), self.assertRaises(ValueError):
+                publisher.publish(envelope)
+        self.assertEqual(publisher.published_messages, [])
+
 
 class TestMockProducer(unittest.TestCase):
     """O produtor falso usa os mesmos exemplos do validador e sai pelo publicador real."""
@@ -159,6 +173,58 @@ class TestBrokerConfiguration(unittest.TestCase):
         for broker in (None, ""):
             with self.subTest(broker=broker), self.assertRaises(ValueError):
                 ConfluentKafkaPublisher(bootstrap_servers=broker)
+
+    def test_kafka_publisher_produces_validated_message_and_tracks_flush(self) -> None:
+        produced_calls: list[dict[str, Any]] = []
+
+        class FakeProducer:
+            def __init__(self, conf: dict[str, Any]) -> None:
+                self.conf = conf
+
+            def produce(self, topic: str, key: bytes, value: bytes, on_delivery: Any = None) -> None:
+                produced_calls.append({"topic": topic, "key": key, "value": value, "on_delivery": on_delivery})
+                if on_delivery is not None:
+                    on_delivery(None, None)
+
+            def poll(self, _timeout: float) -> int:
+                return 0
+
+            def flush(self, _timeout: float = 3.0) -> int:
+                return 0
+
+        fake_module = type(sys)("confluent_kafka")
+        fake_module.Producer = FakeProducer  # type: ignore[attr-defined]
+
+        frame = Frame(
+            image=np.zeros((720, 1280, 3), dtype=np.uint8),
+            captured_at="2026-10-18T12:00:00.100Z",
+            source_id="cam-estacionamento",
+            session_id="9c2a1f3e-4d5b-4c6a-9e8f-0a1b2c3d4e5f",
+            frame_index=0,
+            image_width=1280,
+            image_height=720,
+        )
+        envelope = build_envelope(
+            frame,
+            sequence=0,
+            artifact_version="app-plates-1.0.0",
+            detections=[Detection(detection_id=0, class_name="placa", confidence=0.91, bbox=[10, 20, 100, 60])],
+        )
+
+        with mock.patch.dict(sys.modules, {"confluent_kafka": fake_module}):
+            pub = ConfluentKafkaPublisher(bootstrap_servers="kafka.local:9092")
+            msg_dict = pub.publish(envelope)
+            remaining = pub.flush()
+
+        self.assertEqual(remaining, 0)
+        self.assertEqual(pub.published_count, 1)
+        self.assertEqual(pub.detection_count, 1)
+        self.assertEqual(len(produced_calls), 1)
+        self.assertEqual(produced_calls[0]["topic"], "ods.i1.detections")
+        self.assertEqual(produced_calls[0]["key"], b"cam-estacionamento")
+        decoded = json.loads(produced_calls[0]["value"].decode("utf-8"))
+        self.assertEqual(decoded, msg_dict)
+        self.assertEqual(schema_errors(decoded), [])
 
 
 if __name__ == "__main__":

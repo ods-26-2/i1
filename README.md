@@ -4,9 +4,9 @@
 **Integrantes:** Felipe Girardi Siqueira (Líder), Thiago Mateus de Almeida Dias Orsini, Eduardo Monteiro Costa Pires
 
 Os artefatos de modelo consumidos por este componente são produzidos pela Frente B5, no repositório
-[`ods-26-2/b5`](https://github.com/ods-26-2/b5).
+[`ods-26-2/b5`](https://github.com/ods-26-2/b5). Múltiplos artefatos de diferentes aplicações (`app-plates`, `app-epi`, etc.) podem coexistir em `I1/artifacts/<artifact_id>/<artifact_version>/` (enquanto os `.engine` compilados para TensorRT na Jetson ficam em `/opt/ods/engines` via `P2_ENGINE_DIR`).
 
-Instruções completas de execução (Docker, mock producer, Degrau A e contrato de saída) em [`HOW_TO_RUN.md`](HOW_TO_RUN.md).
+Instruções completas de execução (como o `I1` é invocado em produção por `P3`, como adicionar artefatos de novas aplicações, Docker, mock producer, Degrau A, P2, Kafka e contrato de saída) em [`HOW_TO_RUN.md`](HOW_TO_RUN.md).
 
 ---
 
@@ -23,7 +23,7 @@ Instruções completas de execução (Docker, mock producer, Degrau A e contrato
 │   ├── detector/
 │   │   ├── config.py                # AppConfig e leitura automática de metadados de B5
 │   │   ├── contracts.py             # Envelope EV-SINAL, ods.p4.frame e exceções de P2
-│   │   ├── ingestion.py             # Conversão dinâmica BGR, RGB, GRAY e NV12
+│   │   ├── ingestion.py             # P4R1/SHM e conversão BGR, RGB, GRAY, NV12 e RG10
 │   │   ├── inference.py             # Cliente da API fechada P2 (load, infer, info, release)
 │   │   ├── postprocessing.py        # Filtro de confiança, NMS por classe e bbox inteira
 │   │   ├── publishing.py            # Validador B1 acoplado, deduplicação UUIDv4, Stdout/Kafka
@@ -31,6 +31,7 @@ Instruções completas de execução (Docker, mock producer, Degrau A e contrato
 │   │   └── pipeline.py              # Orquestrador, controle de sessão (B2) e telemetria
 │   ├── tests/
 │   │   ├── test_contract_schema.py  # Contrato: schema, exemplos, mock e publicador (sem GPU/torch)
+│   │   ├── test_p4_ingestion.py     # Parser P4R1, formatos de buffer, vídeo MP4 e NativeP2Backend
 │   │   ├── test_session.py          # Sessão e sequence em replay (T6)
 │   │   ├── test_error_handling.py   # Representação de erro (T7)
 │   │   └── test_i1_sprint3.py       # Suíte de auditoria da Sprint 3 (inclui Degrau A)

@@ -10,3 +10,13 @@ venv/
 
 # Pesos intermediários (apenas .onnx oficiais em I1/artifacts/ são versionados)
 *.pt
+
+# Remoção de vídeos
+*.mp4
+
+# O arquivo da arquitetura
+*.html
+
+MUDANCAS_CONVERSA_I1.md 
+STATUS_SPRINT3_V2.md
+STATUS_SPRINT3.md

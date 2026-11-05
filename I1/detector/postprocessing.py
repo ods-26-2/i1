@@ -9,6 +9,7 @@ postprocessing.py — Pós-processamento definitivo de I1 (T10):
 from __future__ import annotations
 
 from collections import defaultdict
+import math
 from .contracts import Detection, RawDetection
 
 
@@ -65,11 +66,22 @@ def finalize_detections(
     Traduz class_id para string oficial, converte bbox para inteiros [x_min, y_min, x_max, y_max]
     dentro dos limites do quadro bruto e atribui detection_id sequencial (0, 1, 2...).
     """
+    if image_width <= 0 or image_height <= 0:
+        raise ValueError(f"Dimensões de imagem inválidas: {image_width}x{image_height}")
+
     allowed = set(enabled_classes) if enabled_classes else None
     final_list: list[Detection] = []
-    det_id = 0
+    valid_detections = [
+        detection
+        for detection in detections
+        if len(detection.bbox) == 4
+        and math.isfinite(detection.confidence)
+        and 0.0 <= detection.confidence <= 1.0
+        and all(math.isfinite(coord) for coord in detection.bbox)
+    ]
 
-    for raw in detections:
+    ordered_detections = sorted(valid_detections, key=lambda detection: detection.confidence, reverse=True)
+    for raw in ordered_detections:
         if raw.class_id not in class_map:
             continue
         cls_name = class_map[raw.class_id]
@@ -86,12 +98,11 @@ def finalize_detections(
 
         final_list.append(
             Detection(
-                detection_id=det_id,
+                detection_id=len(final_list),
                 class_name=cls_name,
                 confidence=raw.confidence,
                 bbox=[x_min, y_min, x_max, y_max],
             )
         )
-        det_id += 1
 
     return final_list
