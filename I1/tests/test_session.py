@@ -146,6 +146,17 @@ class TestSessionAndSequence(unittest.TestCase):
         _, messages, _ = self._run([make_frame(SESSION_A, i) for i in range(50)])
         self.assertEqual([m["sequence"] for m in messages], list(range(50)))
 
+    def test_upstream_frame_gaps_preserve_frame_identity(self) -> None:
+        frame_indexes = [10, 13, 20]
+        _, messages, _ = self._run([make_frame(SESSION_A, idx) for idx in frame_indexes])
+
+        self.assertEqual([m["sequence"] for m in messages], [0, 1, 2])
+        self.assertEqual(
+            [m["payload"]["frame_index"] for m in messages],
+            frame_indexes,
+        )
+        self.assertEqual([m["session_id"] for m in messages], [SESSION_A] * len(frame_indexes))
+
     def test_late_frame_from_ended_session_is_dropped(self) -> None:
         frames = [
             make_frame(SESSION_A, 0),
@@ -162,6 +173,21 @@ class TestSessionAndSequence(unittest.TestCase):
         self.assertEqual(pipe.error_counts, {"STALE_SESSION": 1})
         (dropped,) = [r for r in records if r["event"] == "frame_dropped"]
         self.assertEqual((dropped["session_id"], dropped["frame_index"], dropped["sequence"]), (SESSION_A, 2, None))
+
+    def test_frame_index_reset_requires_a_new_session_id(self) -> None:
+        frames = [
+            make_frame(SESSION_A, 0),
+            make_frame(SESSION_A, 1),
+            make_frame(SESSION_A, 0),
+            make_frame(SESSION_A, 1),
+            make_frame(SESSION_A, 2),
+        ]
+        pipe, messages, records = self._run(frames)
+
+        self.assertEqual([m["sequence"] for m in messages], [0, 1, 4])
+        self.assertEqual(pipe.error_counts, {"SESSION_PROTOCOL_VIOLATION": 2})
+        drops = [r for r in records if r["event"] == "frame_dropped"]
+        self.assertEqual([(r["frame_index"], r["sequence"]) for r in drops], [(0, 2), (1, 3)])
 
     def test_sequence_gap_stays_inside_its_session(self) -> None:
         frames = [

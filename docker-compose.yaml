@@ -1,18 +1,24 @@
 services:
   # ============================================================================
   # 1. TESTES DE CONTRATO E PIPELINE (Para a CI de B4 / TRA-2 - Tarefa T15)
-  # Como rodar: docker compose run --rm i1-ci-tests
+  # Como rodar: docker compose run --build --rm i1-ci-tests
   # ============================================================================
   i1-ci-tests:
     build: .
+    volumes:
+      - ./I1:/app/I1:ro
+      - ./schemas:/app/schemas:ro
     command: ["python3", "-m", "unittest", "discover", "-s", "I1/tests", "-p", "test_*.py", "-v"]
 
   # ============================================================================
   # 2. MOCK PRODUCER - MODO STDOUT (Inspeção local rápida no terminal)
-  # Como rodar: docker compose run --rm i1-mock-stdout
+  # Como rodar: docker compose run --build --rm i1-mock-stdout
   # ============================================================================
   i1-mock-stdout:
     build: .
+    volumes:
+      - ./I1:/app/I1:ro
+      - ./schemas:/app/schemas:ro
     command: [
       "python3", "I1/mock_producer.py",
       "--frames", "10",
@@ -21,11 +27,14 @@ services:
 
   # ============================================================================
   # 3. MOCK PRODUCER - MODO KAFKA (Dispara eventos no Broker da Disciplina B3)
-  # Como rodar: ODS_KAFKA_BROKER=ip:porta docker compose run --rm i1-mock-kafka
+  # Como rodar: ODS_KAFKA_BROKER=host:porta docker compose run --build --rm i1-mock-kafka
   # Não há broker padrão: sem ODS_KAFKA_BROKER o modo kafka falha antes de publicar.
   # ============================================================================
   i1-mock-kafka:
     build: .
+    volumes:
+      - ./I1:/app/I1:ro
+      - ./schemas:/app/schemas:ro
     environment:
       - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-}
     command: [
@@ -44,21 +53,64 @@ services:
   #   --metadata <caminho>     : Arquivo metadata.json do pacote B5 (define classes e versão)
   #   --source <caminho|0>     : Pasta de imagens de teste, vídeo .mp4 ou 0 para webcam
   #   --max-frames <int>       : Quantidade máxima de quadros a processar (ex: 10, 20)
+  #   --source-id <id>         : Identificador para fonte local; SHM usa o source_id vindo de P4
   #   --conf <float>           : Limiar de confiança do detector (default: 0.50)
   #   --mode <stdout|kafka>    : Publica no terminal ('stdout') ou no broker ('kafka')
   #   --output-jsonl <arquivo> : Caminho onde salvar o log de eventos validados
   # ============================================================================
   i1-degrau-a:
     build: .
+    volumes:
+      - ./I1:/app/I1:ro
+      - ./schemas:/app/schemas:ro
+      - ${I1_ARTIFACTS_DIR:-./I1/artifacts}:/app/I1/artifacts:ro
+      - ${P2_ENGINE_DIR:-./I1/artifacts}:/opt/ods/engines:ro
+      - /tmp:/tmp
     environment:
       - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-}
+      - P2_ENGINE_DIR=/opt/ods/engines
     command: [
       "python3", "I1/run_detector.py",
-      "--onnx", "/app/I1/artifacts/app-plates/1.0.0/app-plates.onnx",
-      "--metadata", "/app/I1/artifacts/app-plates/1.0.0/metadata.json",
-      "--source", "/app/I1/artifacts/app-plates/1.0.0/fixtures",
-      "--max-frames", "10",
-      "--conf", "0.50",
-      # O .jsonl é salvo no container, mas você pode mapear para o host se quiser inspecionar depois.
-      "--output-jsonl", "/app/degrau_a_plates_events.jsonl" 
+      "--backend", "${I1_BACKEND:-ultralytics}",
+      "--onnx", "${I1_ONNX_PATH:-/app/I1/artifacts/app-plates/1.0.0/app-plates.onnx}",
+      "--metadata", "${I1_METADATA_PATH:-/app/I1/artifacts/app-plates/1.0.0/metadata.json}",
+      "--source", "${I1_SOURCE:-/app/I1/artifacts/app-plates/1.0.0/fixtures}",
+      "--shm-socket", "${P4_SHM_SOCKET:-/tmp/p4_imx519_shm}",
+      "--max-frames", "${I1_MAX_FRAMES:-10}",
+      "--source-id", "${I1_SOURCE_ID:-cam0}",
+      "--conf", "${I1_CONF:-0.50}",
+      "--mode", "${I1_MODE:-stdout}",
+      # O .jsonl é salvo no container, mas você pode mapear para o host (ex.: /tmp) se quiser inspecionar depois.
+      "--output-jsonl", "${I1_OUTPUT_JSONL:-/app/degrau_a_plates_events.jsonl}"
+    ]
+
+  # 5. TEMPLATE DE EXECUÇÃO P2 NA JETSON (requer imagem/runtime e engine preparados, ou I1_BACKEND=mock)
+  # Por padrão usa P2 (--backend p2) e requer o engine app-plates-1.0.0 no diretório montado (ou I1_BACKEND=mock para teste mockado na Jetson).
+  # ============================================================================
+  i1-jetson:
+    build: .
+    profiles: ["jetson"]
+    runtime: nvidia
+    ipc: host
+    environment:
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-}
+      - P2_ENGINE_DIR=/opt/ods/engines
+    volumes:
+      - ./I1:/app/I1:ro
+      - ./schemas:/app/schemas:ro
+      - ${I1_ARTIFACTS_DIR:-./I1/artifacts}:/app/I1/artifacts:ro
+      - ${P2_ENGINE_DIR:-/opt/ods/engines}:/opt/ods/engines:ro
+      - /tmp:/tmp
+    command: [
+      "python3", "I1/run_detector.py",
+      "--backend", "${I1_BACKEND:-p2}",
+      "--onnx", "${I1_ONNX_PATH:-/app/I1/artifacts/app-plates/1.0.0/app-plates.onnx}",
+      "--metadata", "${I1_METADATA_PATH:-/app/I1/artifacts/app-plates/1.0.0/metadata.json}",
+      "--source", "${I1_SOURCE:-/app/I1/artifacts/app-plates/1.0.0/fixtures}",
+      "--shm-socket", "${P4_SHM_SOCKET:-/tmp/p4_imx519_shm}",
+      "--max-frames", "${I1_MAX_FRAMES:-20}",
+      "--source-id", "${I1_SOURCE_ID:-cam0}",
+      "--conf", "${I1_CONF:-0.50}",
+      "--mode", "${I1_MODE:-stdout}",
+      "--output-jsonl", "${I1_OUTPUT_JSONL:-/app/jetson_events.jsonl}"
     ]

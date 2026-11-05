@@ -102,7 +102,13 @@ def main() -> None:
             time.sleep(1.0 / args.fps)
 
     if hasattr(publisher, "flush"):
-        publisher.flush()
+        remaining = publisher.flush()
+        if remaining > 0:
+            print(
+                f"[I1 - Mock Kafka] Falha ao entregar {remaining} mensagem(ns) ao broker '{args.broker}'.",
+                file=sys.stderr,
+            )
+            sys.exit(3)
 
 
 if __name__ == "__main__":
