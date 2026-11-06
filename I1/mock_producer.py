@@ -79,8 +79,8 @@ def main() -> None:
     parser.add_argument(
         "--broker",
         type=str,
-        default=os.getenv(BROKER_ENV_VAR),
-        help=f"host:porta do broker no modo kafka (padrão: variável {BROKER_ENV_VAR}; sem ela, o modo kafka falha)",
+        default=os.getenv(BROKER_ENV_VAR, "172.18.4.56:9092"),
+        help=f"host:porta do broker no modo kafka (padrão: 172.18.4.56:9092 na rede Dcomp ou variável {BROKER_ENV_VAR})",
     )
     parser.add_argument("--topic", type=str, default="ods.i1.detections")
     parser.add_argument("--fps", type=float, default=10.0)

@@ -10,7 +10,7 @@ from typing import Any, Literal
 import uuid
 import numpy as np
 
-PixelFormat = Literal["NV12", "RGB", "BGR", "GRAY", "RG10"]
+PixelFormat = Literal["NV12", "RGB", "BGR", "GRAY", "RG10", "BGR8"]
 
 P2ErrorCode = Literal[
     "ENGINE_NOT_FOUND",

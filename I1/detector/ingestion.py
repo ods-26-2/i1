@@ -69,6 +69,7 @@ def parse_p4r1_packet(packet: bytes) -> tuple[dict[str, Any], bytes]:
     if not isinstance(metadata["format"], str) or metadata["format"] not in {
         "RG10",
         "BGR",
+        "BGR8",
         "RGB",
         "GRAY",
         "NV12",
@@ -97,7 +98,7 @@ def _image_array_from_p4_data(
                 f"Frame RG10 incompatível: esperados {expected_size} bytes, recebidos {len(image_data)}."
             )
         return np.frombuffer(image_data, dtype="<u2").reshape(height, width)
-    if pixel_format in ("BGR", "RGB"):
+    if pixel_format in ("BGR", "RGB", "BGR8"):
         expected_size = width * height * 3
         if len(image_data) != expected_size:
             raise ValueError(
@@ -136,7 +137,7 @@ def preprocess_frame_to_bgr(frame: Frame) -> np.ndarray:
     fmt: PixelFormat = frame.pixel_format
     h, w = frame.image_height, frame.image_width
 
-    if fmt == "BGR":
+    if fmt in ("BGR", "BGR8"):
         bgr = img
     elif fmt == "RGB":
         bgr = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)

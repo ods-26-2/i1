@@ -98,6 +98,30 @@ class TestP4Ingestion(unittest.TestCase):
         self.assertEqual(converted.shape, (4, 4, 3))
         self.assertEqual(converted.dtype, np.uint8)
 
+    def test_bgr8_packet_from_p4_video_decodes_to_bgr(self) -> None:
+        bgr_data = np.full((4, 4, 3), 128, dtype=np.uint8).tobytes()
+        metadata, payload = parse_p4r1_packet(
+            build_p4r1_packet(bgr_data, pixel_format="BGR8", width=4, height=4)
+        )
+        self.assertEqual(metadata["format"], "BGR8")
+        image = _image_array_from_p4_data(
+            payload, metadata["width"], metadata["height"], metadata["format"]
+        )
+        frame = Frame(
+            image=image,
+            captured_at="2026-11-05T00:00:00.000Z",
+            source_id="file_video",
+            session_id=metadata["session_id"],
+            frame_index=metadata["frame_id"],
+            image_width=metadata["width"],
+            image_height=metadata["height"],
+            pixel_format=metadata["format"],
+        )
+        converted = preprocess_frame_to_bgr(frame)
+        self.assertEqual(converted.shape, (4, 4, 3))
+        self.assertEqual(converted.dtype, np.uint8)
+        np.testing.assert_array_equal(converted, image)
+
     def test_rg10_rejects_unexpected_buffer_size(self) -> None:
         with self.assertRaisesRegex(ValueError, "Frame RG10 incompatível"):
             _image_array_from_p4_data(bytes(10), 4, 4, "RG10")
@@ -123,6 +147,14 @@ class TestP2VideoAndSourceResolution(unittest.TestCase):
         shm_src = resolve_frame_source("shm", "/tmp/p4_imx519_shm", self.cfg, 10)
         self.assertIsInstance(shm_src, P4GStreamerShmSource)
         self.assertEqual(shm_src.shm_socket_path, "/tmp/p4_imx519_shm")
+
+        imx477_src = resolve_frame_source("imx477", "/tmp/p4_imx519_shm", self.cfg, 10)
+        self.assertIsInstance(imx477_src, P4GStreamerShmSource)
+        self.assertEqual(imx477_src.shm_socket_path, "/tmp/p4_imx477_shm")
+
+        p4_file_src = resolve_frame_source("p4_video", "/tmp/p4_imx519_shm", self.cfg, 10)
+        self.assertIsInstance(p4_file_src, P4GStreamerShmSource)
+        self.assertEqual(p4_file_src.shm_socket_path, "/tmp/p4_file_shm")
 
         sock_src = resolve_frame_source("/tmp/p4_imx519_shm", "/tmp/p4_imx519_shm", self.cfg, 10)
         self.assertIsInstance(sock_src, P4GStreamerShmSource)
