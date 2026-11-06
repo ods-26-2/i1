@@ -180,19 +180,21 @@ Não é necessário configurar ambiente Python localmente. Todos os fluxos de te
    docker compose --profile jetson run --rm i1-jetson
    ```
 
-4. **Funcionar com um Broker Kafka caso seja fornecido um (`ODS_KAFKA_BROKER`):**
+4. **Funcionar com o Broker Kafka Oficial da Jetson (`172.18.4.56:9092` na rede Dcomp):**
    ```bash
-   # Com o produtor mock (serviço dedicado i1-mock-kafka):
-   ODS_KAFKA_BROKER="<broker-host:porta>" docker compose run --rm i1-mock-kafka
+   # Com o produtor mock (serviço dedicado i1-mock-kafka, já configurado por padrão com 172.18.4.56:9092):
+   docker compose run --rm i1-mock-kafka
 
-   # Com o pipeline completo do detector (qualquer combinação de backend e fonte):
-   ODS_KAFKA_BROKER="<broker-host:porta>" \
+   # Com o pipeline completo do detector (publicando detecções reais no tópico ods.i1.detections):
    I1_MODE=kafka \
    I1_BACKEND=p2 \
-   I1_SOURCE=/tmp/video.mp4 \
-   docker compose run --rm i1-degrau-a
+   I1_SOURCE=imx519 \
+   docker compose --profile jetson run --rm i1-jetson
+
+   # Para apontar para outro broker externo:
+   ODS_KAFKA_BROKER="<outro-broker:porta>" I1_MODE=kafka docker compose run --rm i1-mock-kafka
    ```
-   > **Nuance importante sobre o Kafka:** Não há broker padrão no código nem no Compose (para impedir que testes/CI publiquem por engano em brokers externos). Se `I1_MODE=kafka` for usado sem `ODS_KAFKA_BROKER`, o publicador falha imediatamente na inicialização (`ValueError`). Além disso, ao final da execução é feito `flush()`: se o broker estiver inacessível e houver mensagens não entregues ou com erro de entrega, o processo encerra com código de erro (`exit code 3`).
+   > **Configuração do Kafka:** O broker oficial na Jetson (`172.18.4.56:9092`) está configurado como padrão no `docker-compose.yaml` e nos executáveis de CLI (`run_detector.py` e `mock_producer.py`) para testes imediatos na rede interna do Dcomp. Para apontar para outro broker, basta exportar a variável `ODS_KAFKA_BROKER="host:porta"`. Se o broker estiver inacessível e houver mensagens não entregues ao final da execução, o processo encerra com código de erro (`exit code 3`).
 
 ---
 
@@ -308,29 +310,33 @@ mock; ele não é iniciado por um `docker compose up` sem perfil. Os bloqueios a
 - O cabeçalho SHM P4R1 pode trazer `timestamp: null` quando o driver não fornece timestamp de captura confiável.
   Nesse caso, o I1 usa o horário de recepção como `captured_at`; quando o timestamp do driver está presente,
   converte o relógio monotônico do host para UTC. A precisão temporal precisa ser medida no hardware.
-- O `main.py` atual do P4 inicia em modo diagnóstico por padrão; esse modo não inicia o publisher SHM nem o
-  produtor Kafka. Para testar apenas P4→SHM→I1 sem broker, configure `P4_MODO_DIAGNOSTICO=false` e
-  `P4_ATIVAR_KAFKA=false`. Para testar também a publicação de metadados P4, configure Kafka e
-  `P4_KAFKA_BOOTSTRAP_SERVERS`.
-- Não há um broker Kafka compartilhado confirmado entre os componentes. O endereço citado anteriormente é apenas
-  exemplo e não deve ser tratado como broker operacional; a publicação/consumo Kafka ponta a ponta ainda não foi
-  validada.
-- A build/teste Docker validada neste projeto foi feita em arquitetura x86_64. O build completo no ARM64 da Jetson
-  não foi validado; confirme a compatibilidade das dependências antes de depender dele.
+- O P4 disponibiliza três fontes no SHM: câmeras físicas `imx519` (`/tmp/p4_imx519_shm`, RG10) e `imx477` (`/tmp/p4_imx477_shm`, RG10), e vídeo MP4 simulado (`/tmp/p4_file_shm`, BGR8). O `I1` aceita os aliases diretos (`I1_SOURCE=imx519`, `I1_SOURCE=imx477`, `I1_SOURCE=video` ou `I1_SOURCE=p4_video`) ou caminho explícito de socket (`P4_SHM_SOCKET`).
+- O broker Kafka oficial na Jetson foi configurado em **`172.18.4.56:9092`** (acessível internamente na rede do Dcomp) e já está definido como valor padrão no `docker-compose.yaml` para todos os serviços com Kafka.
+- O script `./scripts/p4_demo.sh` do repositório P4 (`ods-26-2/p4`) já configura as variáveis de ambiente necessárias e publica no socket correto:
+  - `./scripts/p4_demo.sh imx519`
+  - `./scripts/p4_demo.sh imx477`
+  - `./scripts/p4_demo.sh video [caminho.mp4]`
+  - `./scripts/p4_demo.sh kafka [caminho.mp4]` (publica no broker `172.18.4.56:9092`)
 
-O caminho de vídeo real do código P4 pode ser testado sem engine TensorRT e sem Kafka, usando o ONNX/CPU do Degrau A.
-Inicie P4 no host Jetson, a partir da raiz do repositório P4 (com as dependências dele instaladas):
+#### Execução Integrada P4 → I1 na Jetson (com P2 ou Degrau A)
 
-```bash
-P4_MODO_DIAGNOSTICO=false P4_ATIVAR_KAFKA=false python3 -m src.main
-```
+1. Em um terminal, inicie a fonte no P4:
+   ```bash
+   # Exemplo com a câmera IMX519:
+   ./scripts/p4_demo.sh imx519
 
-Em outro terminal, na pasta `i1/`, rode I1 apontando ao socket P4. O serviço monta `/tmp` do host no container:
+   # Ou exemplo com vídeo simulado:
+   ./scripts/p4_demo.sh video
+   ```
 
-```bash
-I1_SOURCE=shm P4_SHM_SOCKET=/tmp/p4_imx519_shm \
-  docker compose run --build --rm i1-degrau-a
-```
+2. Em outro terminal, na pasta `i1/`, suba o detector consumindo o socket correspondente:
+   ```bash
+   # Consumindo IMX519 via P2 com publicação no Kafka da Jetson:
+   I1_SOURCE=imx519 I1_MODE=kafka docker compose --profile jetson run --rm i1-jetson
+
+   # Ou consumindo vídeo simulado do P4 (BGR8 via SHM) com ONNX/CPU:
+   I1_SOURCE=video I1_MODE=kafka docker compose run --rm i1-degrau-a
+   ```
 
 Esse teste exercita o buffer SHM real, o cabeçalho P4R1, a conversão RG10 e a inferência ONNX em CPU; não valida
 TensorRT/P2, publicação Kafka nem desempenho em tempo real. O P4 atual não espera o consumidor SHM para iniciar

@@ -82,6 +82,17 @@ class DirectoryImageSource:
             )
 
 
+P4_SOCKET_ALIASES: dict[str, str] = {
+    "imx519": "/tmp/p4_imx519_shm",
+    "imx477": "/tmp/p4_imx477_shm",
+    "video": "/tmp/p4_file_shm",
+    "file": "/tmp/p4_file_shm",
+    "p4_video": "/tmp/p4_file_shm",
+    "p4_file": "/tmp/p4_file_shm",
+    "p4_file_shm": "/tmp/p4_file_shm",
+}
+
+
 def resolve_frame_source(
     source_arg: str,
     shm_socket: str,
@@ -89,6 +100,12 @@ def resolve_frame_source(
     max_frames: int | None,
 ) -> P4GStreamerShmSource | DirectoryImageSource | OpenCVFrameSource:
     """Seleciona a fonte de quadros (SHM do P4, diretório de imagens ou vídeo/webcam OpenCV)."""
+    if source_arg in P4_SOCKET_ALIASES:
+        return P4GStreamerShmSource(
+            shm_socket_path=P4_SOCKET_ALIASES[source_arg],
+            max_frames=max_frames,
+        )
+
     src_path = Path(source_arg)
     is_media_file = src_path.suffix.lower() in MEDIA_EXTENSIONS or (
         src_path.exists() and src_path.is_file() and not src_path.is_socket()
@@ -175,6 +192,12 @@ def main() -> None:
         help="Destino de publicação: 'stdout' (terminal local) ou 'kafka' (broker B3)",
     )
     parser.add_argument(
+        "--broker",
+        type=str,
+        default=os.getenv(BROKER_ENV_VAR, "172.18.4.56:9092"),
+        help=f"host:porta do broker no modo kafka (padrão: 172.18.4.56:9092 na rede Dcomp ou variável {BROKER_ENV_VAR})",
+    )
+    parser.add_argument(
         "--output-jsonl",
         type=str,
         default="degrau_a_events.jsonl",
@@ -214,9 +237,10 @@ def main() -> None:
         jsonl_stream.write(json.dumps(message, ensure_ascii=False) + "\n")
 
     # --- Seleção do Publicador (Publisher) ---
+    broker_server = args.broker or cfg.broker_bootstrap_servers or "172.18.4.56:9092"
     if args.mode == "kafka":
         publisher = ConfluentKafkaPublisher(
-            bootstrap_servers=cfg.broker_bootstrap_servers,
+            bootstrap_servers=broker_server,
             topic=cfg.topic,
             history_limit=0,
             on_publish=persist_message,
@@ -229,10 +253,11 @@ def main() -> None:
         )
 
     # --- Seleção do Backend de Inferência (P2 Client) ---
+    model_imgsz = int(meta.get("input_shape", [1, 3, 640, 640])[2])
     if args.backend == "p2":
         backend = NativeP2Backend()
     elif args.backend == "ultralytics":
-        backend = UltralyticsP2Adapter()
+        backend = UltralyticsP2Adapter(imgsz=model_imgsz)
     elif args.backend == "mock":
         backend = MockP2Backend(
             simulated_detections=[
@@ -245,7 +270,7 @@ def main() -> None:
             import p2  # noqa: F401
             backend = NativeP2Backend()
         except ImportError:
-            backend = UltralyticsP2Adapter()
+            backend = UltralyticsP2Adapter(imgsz=model_imgsz)
             cfg = AppConfig(
                 artifact_id=meta["artifact_id"],
                 artifact_version=meta["artifact_version"],
@@ -272,7 +297,7 @@ def main() -> None:
         print(f"[I1 - Kafka] Flush concluído (mensagens pendentes na fila: {remaining})")
         if remaining > 0:
             print(
-                f"[I1 - Kafka] Falha ao entregar {remaining} mensagem(ns) ao broker '{cfg.broker_bootstrap_servers}'.",
+                f"[I1 - Kafka] Falha ao entregar {remaining} mensagem(ns) ao broker '{broker_server}'.",
                 file=sys.stderr,
             )
             sys.exit(3)
