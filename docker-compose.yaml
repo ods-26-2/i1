@@ -28,7 +28,7 @@ services:
   # ============================================================================
   # 3. MOCK PRODUCER - MODO KAFKA (Dispara eventos no Broker da Jetson/Dcomp)
   # Como rodar: docker compose run --rm i1-mock-kafka
-  # Broker padrão: 172.18.4.56:9092 (Jetson na rede interna Dcomp).
+  # Broker padrão: 172.18.4.56:9093 (Jetson na rede interna Dcomp).
   # Para sobrescrever: ODS_KAFKA_BROKER=outro:porta docker compose run --rm i1-mock-kafka
   # ============================================================================
   i1-mock-kafka:
@@ -37,7 +37,7 @@ services:
       - ./I1:/app/I1:ro
       - ./schemas:/app/schemas:ro
     environment:
-      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-172.18.4.56:9092}
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-172.18.4.56:9093}
     command: [
       "python3", "I1/mock_producer.py",
       "--frames", "10",
@@ -68,7 +68,7 @@ services:
       - ${P2_ENGINE_DIR:-./I1/artifacts}:/opt/ods/engines:ro
       - /tmp:/tmp
     environment:
-      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-172.18.4.56:9092}
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-172.18.4.56:9093}
       - P2_ENGINE_DIR=/opt/ods/engines
     command: [
       "python3", "I1/run_detector.py",
@@ -85,17 +85,46 @@ services:
       "--output-jsonl", "${I1_OUTPUT_JSONL:-/app/degrau_a_plates_events.jsonl}"
     ]
 
-  # 5. TEMPLATE DE EXECUÇÃO P2 NA JETSON (requer imagem/runtime e engine preparados, ou I1_BACKEND=mock)
-  # Por padrão usa P2 (--backend p2) e requer o engine app-plates-1.0.0 no diretório montado (ou I1_BACKEND=mock para teste mockado na Jetson).
+  # ============================================================================
+  # 5. COMPILAÇÃO DE ENGINE TENSORRT NA JETSON (GPU) - P2 (p2-build)
+  # Compila um pacote B5 (.onnx + metadata.json) para .engine TensorRT em /opt/ods/engines.
+  # Como rodar: docker compose --profile jetson run --build --rm i1-p2-build
+  # Outro pacote: P2_PACKAGE_DIR=/app/I1/artifacts/app-epi/1.0.0 docker compose --profile jetson run --rm i1-p2-build
+  # ============================================================================
+  i1-p2-build:
+    build:
+      context: .
+      dockerfile: Dockerfile.jetson
+    profiles: ["jetson"]
+    runtime: nvidia
+    network_mode: host
+    environment:
+      - P2_ENGINE_DIR=/opt/ods/engines
+    volumes:
+      - ./I1:/app/I1:ro
+      - ${I1_ARTIFACTS_DIR:-./I1/artifacts}:/app/I1/artifacts:ro
+      - ${P2_ENGINE_DIR:-/opt/ods/engines}:/opt/ods/engines:rw
+    command: [
+      "p2-build",
+      "${P2_PACKAGE_DIR:-/app/I1/artifacts/app-plates/1.0.0}"
+    ]
+
+  # ============================================================================
+  # 6. EXECUÇÃO P2 NA JETSON COM GPU/TENSORRT (ou I1_BACKEND=mock para CPU mockada)
+  # Requer o engine compilado previamente em /opt/ods/engines (via serviço i1-p2-build ou p2-build no host).
   # ============================================================================
   i1-jetson:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.jetson
     profiles: ["jetson"]
     runtime: nvidia
     ipc: host
+    network_mode: host
     environment:
-      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-172.18.4.56:9092}
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-172.18.4.56:9093}
       - P2_ENGINE_DIR=/opt/ods/engines
+      - P2_BACKEND=${P2_BACKEND:-trt}
     volumes:
       - ./I1:/app/I1:ro
       - ./schemas:/app/schemas:ro

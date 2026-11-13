@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 from pathlib import Path
 import sys
 from typing import Any, Iterator
@@ -23,7 +24,7 @@ REPO_ROOT = PROJECT_ROOT.parent if PROJECT_ROOT.name == "I1" else PROJECT_ROOT
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from detector.config import AppConfig
+from detector.config import AppConfig, BROKER_ENV_VAR
 from detector.contracts import Frame, P2ExecutionError, RawDetection, utc_now_iso_ms
 from detector.inference import (
     MockP2Backend,
@@ -194,8 +195,8 @@ def main() -> None:
     parser.add_argument(
         "--broker",
         type=str,
-        default=os.getenv(BROKER_ENV_VAR, "172.18.4.56:9092"),
-        help=f"host:porta do broker no modo kafka (padrão: 172.18.4.56:9092 na rede Dcomp ou variável {BROKER_ENV_VAR})",
+        default=os.getenv(BROKER_ENV_VAR, "172.18.4.56:9093"),
+        help=f"host:porta do broker no modo kafka (padrão: 172.18.4.56:9093 na rede Dcomp ou variável {BROKER_ENV_VAR})",
     )
     parser.add_argument(
         "--output-jsonl",
@@ -237,7 +238,7 @@ def main() -> None:
         jsonl_stream.write(json.dumps(message, ensure_ascii=False) + "\n")
 
     # --- Seleção do Publicador (Publisher) ---
-    broker_server = args.broker or cfg.broker_bootstrap_servers or "172.18.4.56:9092"
+    broker_server = args.broker or cfg.broker_bootstrap_servers or "172.18.4.56:9093"
     if args.mode == "kafka":
         publisher = ConfluentKafkaPublisher(
             bootstrap_servers=broker_server,

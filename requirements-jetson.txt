@@ -1,0 +1,13 @@
+# Dependências para executar o componente I1 direto na Jetson (JetPack 6.2.1) com GPU TensorRT via P2.
+# Como o TensorRT vem do JetPack no sistema, crie a venv com --system-site-packages:
+#   /usr/bin/python3 -m venv --system-site-packages .venv
+#   source .venv/bin/activate
+#   pip install -r requirements-jetson.txt
+numpy>=1.21.6,<2
+opencv-python-headless<5
+pyyaml
+jsonschema
+confluent-kafka
+onnx
+p2[trt] @ https://github.com/ods-26-2/p2/releases/download/v0.2.0a1/p2-0.2.0a1-py3-none-any.whl
+

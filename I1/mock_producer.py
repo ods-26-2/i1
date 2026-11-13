@@ -79,8 +79,8 @@ def main() -> None:
     parser.add_argument(
         "--broker",
         type=str,
-        default=os.getenv(BROKER_ENV_VAR, "172.18.4.56:9092"),
-        help=f"host:porta do broker no modo kafka (padrão: 172.18.4.56:9092 na rede Dcomp ou variável {BROKER_ENV_VAR})",
+        default=os.getenv(BROKER_ENV_VAR, "172.18.4.56:9093"),
+        help=f"host:porta do broker no modo kafka (padrão: 172.18.4.56:9093 na rede Dcomp ou variável {BROKER_ENV_VAR})",
     )
     parser.add_argument("--topic", type=str, default="ods.i1.detections")
     parser.add_argument("--fps", type=float, default=10.0)
@@ -95,6 +95,12 @@ def main() -> None:
         else ValidatedStdoutPublisher(verbose=True)
     )
 
+    if args.mode == "kafka":
+        print(
+            f"[I1 - Mock Kafka] Iniciando envio de {args.frames} mensagem(ns) "
+            f"para o tópico '{args.topic}' no broker '{args.broker}'..."
+        )
+
     envelopes = generate_mock_envelopes(args.frames, args.session_id, args.source_id, args.artifact_version)
     for seq, env in enumerate(envelopes):
         publisher.publish(env)
@@ -103,12 +109,18 @@ def main() -> None:
 
     if hasattr(publisher, "flush"):
         remaining = publisher.flush()
+        print(f"[I1 - Mock Kafka] Flush concluído (mensagens pendentes/erros: {remaining})")
         if remaining > 0:
             print(
                 f"[I1 - Mock Kafka] Falha ao entregar {remaining} mensagem(ns) ao broker '{args.broker}'.",
                 file=sys.stderr,
             )
             sys.exit(3)
+        print(
+            f"[I1 - Mock Kafka] Sucesso: {publisher.published_count}/{args.frames} "
+            f"mensagem(ns) validada(s) (B1) e entregue(s) ao tópico '{args.topic}' "
+            f"({publisher.detection_count} detecções no total)."
+        )
 
 
 if __name__ == "__main__":

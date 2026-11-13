@@ -1,0 +1,47 @@
+# Dockerfile dedicado para execução com GPU (TensorRT) na NVIDIA Jetson (JetPack 6.x / L4T R36.4).
+# Diferente do Dockerfile padrão (x86_64/CPU com p2[cpu]), esta imagem parte do runtime L4T JetPack
+# com CUDA + TensorRT nativos e instala p2[trt,cpu] para executar inferência acelerada na GPU.
+ARG BASE_IMAGE=nvcr.io/nvidia/l4t-jetpack:r36.4.0
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CUDA_HOME=/usr/local/cuda \
+    PATH=/usr/local/cuda/bin:${PATH} \
+    LD_LIBRARY_PATH=/usr/local/cuda/lib64:${LD_LIBRARY_PATH} \
+    PYTHONPATH=/usr/lib/python3/dist-packages:/usr/lib/python3.10/dist-packages:/app:/app/I1 \
+    P2_BACKEND=trt \
+    P2_ENGINE_DIR=/opt/ods/engines
+
+WORKDIR /app
+
+# Dependências de sistema para build Python, OpenCV, GStreamer/PyGObject (P4R1 SHM) e librdkafka
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip \
+    python3-dev \
+    build-essential \
+    libgl1 \
+    libglib2.0-0 \
+    libgstreamer1.0-0 \
+    python3-gi \
+    gir1.2-gstreamer-1.0 \
+    gstreamer1.0-plugins-base \
+    gstreamer1.0-plugins-good \
+    gstreamer1.0-plugins-bad \
+    && rm -rf /var/lib/apt/lists/*
+
+# Instala dependências do pipeline I1 + biblioteca oficial P2 com suporte a TensorRT (GPU)
+RUN python3 -m pip install --no-cache-dir --upgrade pip && \
+    python3 -m pip install --no-cache-dir \
+    "numpy>=1.21.6,<2" \
+    "opencv-python-headless<5" \
+    pyyaml \
+    jsonschema \
+    confluent-kafka \
+    onnx \
+    "p2[trt,cpu] @ https://github.com/ods-26-2/p2/releases/download/v0.2.0a1/p2-0.2.0a1-py3-none-any.whl"
+
+COPY I1/ /app/I1/
+COPY schemas/ /app/schemas/
+
+CMD ["python3", "I1/run_detector.py", "--backend", "p2", "--source", "/app/I1/artifacts/app-plates/1.0.0/fixtures"]
+

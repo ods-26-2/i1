@@ -16,10 +16,10 @@ Instruções completas de execução (como o `I1` é invocado em produção por 
 .
 ├── I1/
 │   ├── artifacts/
-│   │   └── app-plates/1.0.0/        # Cópia do pacote MODEL publicado por B5 (repo b5)
-│   │       ├── app-plates.onnx
-│   │       ├── metadata.json
-│   │       └── fixtures/            # Imagens de teste usadas no Degrau A e no T16
+│   │   ├── app-epi/1.0.0/           # Pacote MODEL B5 para EPI
+│   │   ├── app-industry/1.0.0/      # Pacote MODEL B5 para Indústria
+│   │   ├── app-plates/1.0.0/        # Pacote MODEL B5 para Placas + fixtures
+│   │   └── app-sports/1.2.0/        # Pacote MODEL B5 para Esporte
 │   ├── detector/
 │   │   ├── config.py                # AppConfig e leitura automática de metadados de B5
 │   │   ├── contracts.py             # Envelope EV-SINAL, ods.p4.frame e exceções de P2
@@ -42,9 +42,11 @@ Instruções completas de execução (como o `I1` é invocado em produção por 
 │   └── examples/{valid,invalid}/    # Mensagens de exemplo para B1 e para a CI de B4
 ├── .github/workflows/i1-tests.yml   # CI a cada push: contrato (leve) e pipeline completo
 ├── requirements-contract.txt        # Dependências da suíte de contrato
-├── requirements.txt                 # Dependências do pipeline completo (Degrau A)
+├── requirements-jetson.txt          # Dependências para .venv na Jetson com p2[trt] (GPU)
+├── requirements.txt                 # Dependências do pipeline completo (Degrau A / CPU)
 ├── docs/diagrams/
-├── Dockerfile
+├── Dockerfile                       # Imagem leve CPU (testes, mock e Degrau A)
+├── Dockerfile.jetson                # Imagem L4T/JetPack com TensorRT e p2[trt,cpu] para GPU na Jetson
 ├── docker-compose.yaml
 ├── .dockerignore
 ├── HOW_TO_RUN.md                    # Instruções sobre como executar o componente

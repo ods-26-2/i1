@@ -1,0 +1,24 @@
+{
+    "artifact_id": "app-sports",
+    "artifact_version": "1.2.0",
+    "classes": [
+        "ball"
+    ],
+    "input_shape": [
+        1,
+        3,
+        1280,
+        1280
+    ],
+    "precision": "FP32",
+    "metrics": {
+        "evaluation_split": "test",
+        "mAP50": 0.9653,
+        "mAP50_95": 0.5762,
+        "precision": 0.9835,
+        "recall": 0.8782
+    },
+    "dataset_version": "1.0.0",
+    "onnx_file": "app-sports.onnx",
+    "hash_sha256": "9173dfa72beecf9a66bc50c5a49355abe7635bdd5f3985ff0ec6bc9b069bfc9e"
+}
