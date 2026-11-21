@@ -144,3 +144,35 @@ services:
       "--mode", "${I1_MODE:-stdout}",
       "--output-jsonl", "${I1_OUTPUT_JSONL:-/app/jetson_events.jsonl}"
     ]
+
+  # ============================================================================
+  # 7. ORQUESTRADOR FIFO SOB DEMANDA NA JETSON (Escuta ods.i1.command no Kafka)
+  # Carrega 1 modelo por vez na GPU (P2/TensorRT), lê os vídeos em /home/sys2/SIS-2/videos
+  # conforme a equipe solicitante (INV1, VER1, VER3, VER5, VER6) e publica em ods.i1.detections.
+  # Como rodar: docker compose --profile jetson run --rm i1-orchestrator
+  # ============================================================================
+  i1-orchestrator:
+    build:
+      context: .
+      dockerfile: Dockerfile.jetson
+    profiles: ["jetson"]
+    runtime: nvidia
+    ipc: host
+    network_mode: host
+    environment:
+      - ODS_KAFKA_BROKER=${ODS_KAFKA_BROKER:-34.66.235.91:9093}
+      - P2_ENGINE_DIR=/opt/ods/engines
+      - P2_BACKEND=${P2_BACKEND:-trt}
+      - I1_BACKEND=${I1_BACKEND:-p2}
+      - I1_MODE=${I1_MODE:-kafka}
+      - I1_COMMAND_TOPIC=${I1_COMMAND_TOPIC:-ods.i1.command}
+      - I1_VIDEOS_DIR=${I1_VIDEOS_DIR:-/home/sys2/SIS-2/videos}
+      - I1_DEFAULT_TTL=${I1_DEFAULT_TTL:-60.0}
+    volumes:
+      - ./I1:/app/I1:ro
+      - ./schemas:/app/schemas:ro
+      - ${I1_ARTIFACTS_DIR:-./I1/artifacts}:/app/I1/artifacts:ro
+      - ${P2_ENGINE_DIR:-/opt/ods/engines}:/opt/ods/engines:ro
+      - ${I1_VIDEOS_DIR:-/home/sys2/SIS-2/videos}:/home/sys2/SIS-2/videos:ro
+      - /tmp:/tmp
+    command: ["python3", "I1/run_orchestrator.py"]

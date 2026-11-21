@@ -95,7 +95,53 @@ I1_SOURCE=/tmp/video.mp4 I1_MAX_FRAMES=100 I1_MODE=kafka \
 
 ---
 
-## 3. Trocar de Aplicação ("Um artefato por aplicação, um componente só")
+## 3. Orquestrador Sob Demanda na Jetson (Multi-Aplicação + Fila FIFO via Kafka)
+
+Quando as aplicações rodam na nuvem e apenas a inferência roda na Jetson, o `run_orchestrator.py` escuta o tópico **`ods.i1.command`**, carrega **1 modelo por vez na GPU (`p2.load`)**, lê o vídeo correspondente da equipe em **`/home/sys2/SIS-2/videos`** (ou SHM do P4) e publica os eventos em **`ods.i1.detections`**. Ao finalizar ou trocar de equipe, ele sempre chama `p2.release()` antes de carregar o próximo item da fila FIFO.
+
+### Como iniciar o orquestrador na Jetson
+```bash
+# Via .venv da Jetson (GPU TensorRT + broker Google Cloud 34.66.235.91:9093)
+export P2_ENGINE_DIR=/opt/ods/engines
+export P2_BACKEND=trt
+python3 I1/run_orchestrator.py --broker 34.66.235.91:9093 --videos-dir /home/sys2/SIS-2/videos
+
+# Ou via Docker GPU:
+docker compose --profile jetson run --rm i1-orchestrator
+```
+
+### Protocolo no tópico `ods.i1.command` (para as aplicações na nuvem)
+Envie um JSON informando a ação e a equipe (`squad`), aplicação (`app_id`) ou modelo (`artifact_id`):
+
+```json
+{"action": "START", "squad": "INV1"}
+```
+
+- **Ações suportadas:**
+  - `START`: entra na **fila FIFO** (ou inicia na hora se a GPU estiver livre; se a equipe já estiver rodando, renova o tempo dela).
+  - `HEARTBEAT`: renova o tempo ativo (`ttl_seconds`, padrão `60s`) sem recarregar o modelo.
+  - `STOP`: encerra a execução da equipe (ou remove da fila) e libera a GPU imediatamente para o próximo.
+- **Campos opcionais:** `"ttl_seconds": 60`, `"max_frames": 300`, `"source_id": "cam_esporte"`, `"source": "video"`, `"force": true` (interrompe a equipe atual e assume a GPU na próxima iteração).
+
+### Mapeamento automático de equipes, modelos e vídeos
+| Equipe (`squad`) | Aplicação (`app_id`) | Artefato (`engine_ref`) | Vídeo em `/home/sys2/SIS-2/videos/` |
+| :--- | :--- | :--- | :--- |
+| `INV1` | `A4` (Esporte) | `app-sports-1.2.0` | `INV1.mp4` (ou pasta `INV1/`) |
+| `VER1` | `A1` (Indústria) | `app-industry-1.0.0` | `VER1.mp4` |
+| `VER3` | `A5` (EPI) | `app-epi-1.0.0` | `VER3.mp4` |
+| `VER5` | `A8` (Placas) | `app-plates-1.0.0` | `VER5.mp4` |
+| `VER6` | `A3` (Monitoramento) | `app-epi-1.0.0` *(classe `pessoa`)* | `VER6.mp4` |
+
+> **Como cada aplicação filtra sua saída em `ods.i1.detections`:** verifique `source_id` (padrão igual ao nome da equipe, ex.: `"INV1"`) ou `artifact_version` (ex.: `"app-sports-1.2.0-fp16"`).
+
+### Testar enviando um comando pelo terminal
+```bash
+python3 I1/run_orchestrator.py --broker 34.66.235.91:9093 --send-command '{"action": "START", "squad": "INV1"}'
+```
+
+---
+
+## 4. Trocar de Aplicação Manualmente ("Um artefato por aplicação, um componente só")
 
 O código do `I1` não muda entre aplicações. Basta apontar `--metadata` (e `--onnx` no modo CPU) para um dos pacotes já embarcados em `I1/artifacts/`:
 
@@ -123,7 +169,7 @@ I1_MODE=kafka \
 
 ---
 
-## 4. Integração P4 → I1 → Kafka (Ao Vivo ou Vídeo Simulado via SHM)
+## 5. Integração P4 → I1 → Kafka (Ao Vivo ou Vídeo Simulado via SHM)
 
 O `I1` aceita diretamente os apelidos de socket do P4: `imx519` (`/tmp/p4_imx519_shm`), `imx477` (`/tmp/p4_imx477_shm`) e `video` (`/tmp/p4_file_shm`).
 
@@ -144,20 +190,23 @@ O `I1` aceita diretamente os apelidos de socket do P4: `imx519` (`/tmp/p4_imx519
 
 ---
 
-## 5. Referência Rápida
+## 6. Referência Rápida
 
 ### Variáveis de Ambiente (`docker-compose.yaml`)
 
-| Variável | Padrão (`i1-degrau-a` / `i1-jetson`) | Descrição |
+| Variável | Padrão (`i1-degrau-a` / `i1-jetson` / `i1-orchestrator`) | Descrição |
 | :--- | :--- | :--- |
-| `I1_BACKEND` | `ultralytics` / `p2` | Motor de inferência (`p2`, `ultralytics`, `mock`, `auto`). |
-| `P2_BACKEND` | *(auto)* / `trt` | Força backend dentro do `p2` (`trt` = GPU TensorRT, `ort` = CPU ONNX Runtime). |
+| `I1_BACKEND` | `ultralytics` / `p2` / `p2` | Motor de inferência (`p2`, `ultralytics`, `mock`, `auto`). |
+| `P2_BACKEND` | *(auto)* / `trt` / `trt` | Força backend dentro do `p2` (`trt` = GPU TensorRT, `ort` = CPU ONNX Runtime). |
 | `P2_ENGINE_DIR` | `./I1/artifacts` / `/opt/ods/engines` | Pasta com as engines compiladas pelo `p2-build`. |
 | `P2_PACKAGE_DIR` | `/app/I1/artifacts/app-plates/1.0.0` | Pacote compilado pelo serviço `i1-p2-build`. |
+| `I1_VIDEOS_DIR` | `/home/sys2/SIS-2/videos` | Pasta com vídeos nomeados por equipe usados pelo `i1-orchestrator`. |
+| `I1_COMMAND_TOPIC` | `ods.i1.command` | Tópico Kafka de comandos do orquestrador. |
+| `I1_DEFAULT_TTL` | `60.0` | Tempo limite (s) sem heartbeat/STOP por sessão no orquestrador. |
 | `I1_SOURCE` | `.../app-plates/1.0.0/fixtures` | Pasta de imagens, vídeo `/tmp/*.mp4`, `imx519`, `imx477`, `video`, `shm` ou `0`. |
 | `P4_SHM_SOCKET` | `/tmp/p4_imx519_shm` | Socket SHM usado quando `I1_SOURCE=shm`. |
-| `I1_MODE` | `stdout` | Destino dos eventos (`stdout` ou `kafka`). |
-| `ODS_KAFKA_BROKER` | `172.18.4.56:9093` | Endereço `host:porta` do broker Kafka. |
+| `I1_MODE` | `stdout` (ou `kafka` no orchestrator) | Destino dos eventos (`stdout` ou `kafka`). |
+| `ODS_KAFKA_BROKER` | `172.18.4.56:9093` (nuvem: `34.66.235.91:9093`) | Endereço `host:porta` do broker Kafka. |
 | `I1_MAX_FRAMES` | `10` / `20` | Limite de quadros por execução. |
 | `I1_CONF` | `0.50` | Limiar mínimo de confiança. |
 | `I1_SOURCE_ID` | `cam0` | Identificador da câmera/fonte (em `shm`, usa o do cabeçalho `P4R1`). |

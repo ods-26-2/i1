@@ -28,15 +28,18 @@ Instruções completas de execução (como o `I1` é invocado em produção por 
 │   │   ├── postprocessing.py        # Filtro de confiança, NMS por classe e bbox inteira
 │   │   ├── publishing.py            # Validador B1 acoplado, deduplicação UUIDv4, Stdout/Kafka
 │   │   ├── schema_validation.py     # Validador gerado do JSON Schema oficial
-│   │   └── pipeline.py              # Orquestrador, controle de sessão (B2) e telemetria
+│   │   ├── pipeline.py              # Pipeline por quadro, controle de sessão (B2) e telemetria
+│   │   └── orchestrator.py          # Orquestrador FIFO multi-aplicação (ods.i1.command)
 │   ├── tests/
 │   │   ├── test_contract_schema.py  # Contrato: schema, exemplos, mock e publicador (sem GPU/torch)
 │   │   ├── test_p4_ingestion.py     # Parser P4R1, formatos de buffer, vídeo MP4 e NativeP2Backend
 │   │   ├── test_session.py          # Sessão e sequence em replay (T6)
 │   │   ├── test_error_handling.py   # Representação de erro (T7)
+│   │   ├── test_orchestrator.py     # Fila FIFO, lease/TTL, STOP e preempção multi-aplicação
 │   │   └── test_i1_sprint3.py       # Suíte de auditoria da Sprint 3 (inclui Degrau A)
 │   ├── mock_producer.py             # Produtor falso gerado dos exemplos do schema (B4 e consumidores)
-│   └── run_detector.py              # CLI principal para execução do pipeline I1
+│   ├── run_detector.py              # CLI para execução de um único artefato/fonte
+│   └── run_orchestrator.py          # Daemon FIFO que escuta ods.i1.command e alterna modelos no P2
 ├── schemas/
 │   ├── ods.i1.detections.v1.0.schema.json # Contrato formal JSON Schema (Draft 2020-12)
 │   └── examples/{valid,invalid}/    # Mensagens de exemplo para B1 e para a CI de B4
